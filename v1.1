@@ -5,7 +5,6 @@ import json
 import time
 import platform
 import getpass
-import win32clipboard
 import tempfile
 from datetime import datetime
 
@@ -253,6 +252,7 @@ def get_system_information():
     return system_info
 
 def main():
+    """Main function to handle user choices and execute corresponding actions."""
     print_status("Starting script...", 'normal')
     choice = input("Enter your choice (1-6): ")
     while choice not in ['1', '2', '3', '4', '5', '6']:
