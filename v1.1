@@ -15,7 +15,8 @@ WEBHOOK_URLS = {
     'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',
     'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
     'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_',
-    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK'
+    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
+    'traces': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP'
 }
 
 # Global variables
@@ -171,112 +172,116 @@ def find_process_traces(name):
                     if name.lower() in file.lower():
                         path = os.path.join(root, file)
                         traces.append(path)
-                        write_log(f"Found trace: {path}")
-                        print_status(f"Found trace: {path}", 'warning')
-
+                        write_log(f"Trace found: {path}")
+                        print_status(f"Trace found: {path}", 'warning')
+        else:
+            print_status(f"Directory does not exist: {directory}", 'error')
+    
     return traces
 
 def scan_recent_activity():
     """Scan for recent activity."""
-    recent_activity = []
-    now = datetime.now()
-    days_to_check = 7
-    start_date = now - timedelta(days=days_to_check)
-    log_dirs = [
-        'C:\\Windows\\System32\\winevt\\Logs',
-        'C:\\Windows\\Temp',
-        'C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\Windows\\Recent'
+    recent_files = []
+    user = getpass.getuser()
+    paths_to_check = [
+        f'C:\\Users\\{user}\\AppData\\Local\\Temp',
+        f'C:\\Users\\{user}\\AppData\\Roaming',
+        'C:\\$Recycle.Bin'
     ]
-
-    for log_dir in log_dirs:
-        log_dir = log_dir.replace('%USERNAME%', getpass.getuser())
-        if os.path.exists(log_dir):
-            write_log(f"Scanning log directory: {log_dir}")
-            print_status(f"Scanning log directory: {log_dir}", 'normal')
-            for root, dirs, files in os.walk(log_dir):
+    for path in paths_to_check:
+        if os.path.exists(path):
+            write_log(f"Scanning recent activity in: {path}")
+            print_status(f"Scanning recent activity in: {path}", 'normal')
+            for root, dirs, files in os.walk(path):
                 for file in files:
-                    file_path = os.path.join(root, file)
-                    file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if file_mod_time >= start_date:
-                        recent_activity.append(f"File: {file_path} - Last Modified: {file_mod_time}")
-                        write_log(f"Recent activity: {file_path} - Last Modified: {file_mod_time}")
-                        print_status(f"Recent activity: {file_path} - Last Modified: {file_mod_time}", 'warning')
+                    recent_files.append(os.path.join(root, file))
+                    write_log(f"Recent file: {file}")
+                    print_status(f"Recent file: {file}", 'warning')
+    
+    return recent_files
 
-    return recent_activity
-
-def get_system_info():
-    """Retrieve system information."""
-    try:
-        system_info = {
-            'OS': platform.system(),
-            'OS Version': platform.version(),
-            'Platform': platform.platform(),
-            'Processor': platform.processor(),
-            'Architecture': platform.architecture(),
-            'Username': getpass.getuser(),
-            'Machine': platform.node(),
-            'System': platform.system(),
-            'Release': platform.release()
-        }
-
-        info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
-        write_log(f"System Information:\n{info_str}")
-        print_status("System information retrieved.", 'success')
-        return info_str
-    except Exception as e:
-        write_log(f"System Info Error: {e}")
-        print_status(f"System Info Error: {e}", 'error')
-        return f"Error retrieving system information: {str(e)}"
+def get_database_results():
+    """Simulate a database search and provide results."""
+    # Mock data for demonstration purposes
+    database_results = {
+        "Spotify": ["C:\\Users\\Public\\Documents\\SpotifyLogs\\log.txt"],
+        "Steam": ["C:\\Program Files (x86)\\Steam\\logs\\connection_log.txt"],
+        "LG Hub": ["C:\\Program Files\\LGHUB\\logs\\lghub.log"]
+    }
+    
+    formatted_results = []
+    for key, paths in database_results.items():
+        formatted_results.append(f"**{key}**:\n" + "\n".join(paths))
+    
+    if not formatted_results:
+        formatted_results.append("No database results found.")
+    
+    return "\n".join(formatted_results)
 
 def main():
-    global log_file, webhook_delay
+    global log_file
+    global webhook_delay
+
+    # Set up log file
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
     
-    # User inputs
-    print_status("Welcome to the PC Scanner Tool!", 'success')
-    print_status("Choose an option:", 'normal')
-    print_status("1. Scan all processes and admin processes", 'normal')
-    print_status("2. Database search", 'normal')
-    print_status("3. Scan the PC (deep scan for traces)", 'normal')
-    print_status("4. System information", 'normal')
-    print_status("5. Error handling", 'normal')
-    print_status("6. Recent activity", 'normal')
+    # User input
+    print("Please select an option:")
+    print("1. Get Processes")
+    print("2. Get Admin Processes")
+    print("3. Scan for Process Traces")
+    print("4. Scan Recent Activity")
+    print("5. Get Database Results")
+    print("6. Exit")
 
-    choice = input("Enter your choice (1-6): ").strip()
-    if choice not in ['1', '2', '3', '4', '5', '6']:
-        print_status("Invalid choice. Exiting...", 'error')
-        return
-
-    webhook_delay = int(input("Enter webhook delay in seconds: ").strip())
-
+    choice = input("Enter your choice (1-6): ")
+    
     if choice == '1':
+        print("Enter webhook delay in seconds: ")
+        webhook_delay = int(input().strip())
         processes = get_processes()
         formatted_processes = format_processes(processes)
-        send_embed_to_webhook("Process Scan Results", formatted_processes, 0x00FF00, WEBHOOK_URLS['processes'])
-        send_embed_to_webhook("Admin Process Scan Results", get_admin_processes(), 0x00FF00, WEBHOOK_URLS['admin_processes'])
+        send_embed_to_webhook("Processes", formatted_processes, 0x00FF00, WEBHOOK_URLS['processes'])
+
     elif choice == '2':
-        # Perform database search and send results
-        results = "Database search results go here."
-        send_embed_to_webhook("Database Search Results", results, 0x00FF00, WEBHOOK_URLS['database'])
+        print("Enter webhook delay in seconds: ")
+        webhook_delay = int(input().strip())
+        admin_processes = get_admin_processes()
+        formatted_admin_processes = format_processes(admin_processes)
+        send_embed_to_webhook("Admin Processes", formatted_admin_processes, 0x00FF00, WEBHOOK_URLS['admin_processes'])
+
     elif choice == '3':
-        # Scan for traces
-        process_name = input("Enter the name of the process to find traces of: ").strip()
+        print("Enter the process name to trace (e.g., 'spotify'): ")
+        process_name = input().strip()
+        print("Enter webhook delay in seconds: ")
+        webhook_delay = int(input().strip())
         traces = find_process_traces(process_name)
-        results = "\n".join(traces) if traces else "No traces found."
-        send_embed_to_webhook("Process Traces Results", results, 0x00FF00, WEBHOOK_URLS['processes'])
+        if traces:
+            traces_info = "\n".join(traces)
+        else:
+            traces_info = f"No traces found for process: {process_name}"
+        send_embed_to_webhook("Process Traces", traces_info, 0xFFFF00, WEBHOOK_URLS['traces'])
+
     elif choice == '4':
-        # Get system information
-        system_info = get_system_info()
-        send_embed_to_webhook("System Information", system_info, 0x00FF00, WEBHOOK_URLS['system_info'])
+        print("Enter webhook delay in seconds: ")
+        webhook_delay = int(input().strip())
+        recent_files = scan_recent_activity()
+        recent_activity_info = "\n".join(recent_files)
+        send_embed_to_webhook("Recent Activity", recent_activity_info, 0x00FFFF, WEBHOOK_URLS['recent_activity'])
+
     elif choice == '5':
-        # Handle errors
-        error_message = "Error handling results go here."
-        send_embed_to_webhook("Error Handling Results", error_message, 0xFF0000, WEBHOOK_URLS['error'])
+        print("Enter webhook delay in seconds: ")
+        webhook_delay = int(input().strip())
+        database_results = get_database_results()
+        send_embed_to_webhook("Database Results", database_results, 0xFF00FF, WEBHOOK_URLS['database'])
+
     elif choice == '6':
-        # Scan for recent activity
-        recent_activity = scan_recent_activity()
-        results = "\n".join(recent_activity) if recent_activity else "No recent activity found."
-        send_embed_to_webhook("Recent Activity Results", results, 0x00FF00, WEBHOOK_URLS['recent_activity'])
+        print("Exiting...")
+        return
+
+    else:
+        print("Invalid choice. Exiting...")
+        return
 
 if __name__ == "__main__":
     main()
