@@ -3,7 +3,6 @@ import requests
 import psutil
 import time
 import logging
-from datetime import datetime
 
 # Configuration
 WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
@@ -33,14 +32,17 @@ def scan_folder(folder_path):
             file_path = os.path.join(root, file)
             if any(process in file for process in TARGET_PROCESSES):
                 traces.append(file_path)
+                print(f"[TRACE FOUND] {file_path}")
     return traces
 
 def check_processes():
     traces = []
     for proc in psutil.process_iter(['pid', 'name', 'username']):
         if proc.info['name'] in TARGET_PROCESSES:
-            if proc.info['username']:
-                is_admin = "Yes" if psutil.Process(proc.info['pid']).uids().real == 0 else "No"
+            is_admin = "Yes" if psutil.Process(proc.info['pid']).uids().real == 0 else "No"
+            if is_admin == "Yes":
+                print(f"[ADMIN PROCESS] {proc.info['name']}, PID: {proc.info['pid']}, User: {proc.info['username']}")
+            else:
                 traces.append({
                     "name": proc.info['name'],
                     "pid": proc.info['pid'],
@@ -54,17 +56,21 @@ def deep_scan():
     all_traces = []
     for drive in ['C:\\', 'D:\\', 'E:\\']:  # Adjust for available drives
         for root, dirs, files in os.walk(drive):
-            print(f"Scanning through folder {root}")
+            print(f"[SCAN] Scanning through folder {root}")
             traces = scan_folder(root)
             if traces:
                 all_traces.extend(traces)
                 send_webhook(f"Found traces in {root} - {traces}", WEBHOOK_URL)
+    
     process_traces = check_processes()
     if process_traces:
         process_message = "\n".join([f"Process: {proc['name']}, PID: {proc['pid']}, User: {proc['username']}, Admin: {proc['is_admin']}" for proc in process_traces])
         send_webhook(f"Processes found:\n{process_message}", WEBHOOK_URL)
+        print(f"[PROCESSES FOUND]\n{process_message}")
     else:
         send_webhook("No target processes found.", WEBHOOK_URL)
+        print("[NO PROCESSES FOUND]")
+
     logging.info("Deep scan completed.")
     print("Scanning complete. Check results.txt for details.")
 
