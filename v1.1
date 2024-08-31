@@ -1,202 +1,37 @@
-import os
-import subprocess
-import requests
-import json
-import time
-import platform
-import getpass
-import tempfile
-from datetime import datetime
-from filelock import FileLock, Timeout
+@echo off
+title Scanner Script
 
-# Webhook URLs
-WEBHOOK_URLS = {
-    'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
-}
+:: Set the path to your Python interpreter and script
+set "PYTHON_EXE=C:\Path\To\Your\Python.exe"
+set "SCRIPT_PATH=C:\Path\To\Your\Script.py"
 
-# Paths
-ERROR_LOG_PATH = os.path.join(tempfile.gettempdir(), 'error_log.txt')
+:: Menu and options
+:menu
+    cls
+    echo Choose an option:
+    echo 1. Scan Directory
+    echo 2. Recent Activities
+    echo 3. Specific Process
+    echo 4. Exit
+    echo.
 
-def send_results_to_webhook(title, description, url):
-    """Send final results to the webhook."""
-    embed = {
-        "embeds": [
-            {
-                "title": title,
-                "description": description,
-                "color": 0x00FF00  # Green color
-            }
-        ]
-    }
-    try:
-        response = requests.post(url, json=embed)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print_status(f"Failed to send results to webhook: {e}", 'error')
+    set /p choice=Enter your choice:
 
-def print_status(message, status='normal'):
-    """Print status messages with color coding for real-time feedback."""
-    color_code = {
-        'error': '91',     # Red
-        'warning': '93',   # Yellow
-        'success': '92',   # Green
-        'normal': '0',     # Default
-        'specific': '33',  # Orange
-    }
-    print(f"\033[{color_code[status]}m{message}\033[0m")
+    if "%choice%"=="1" (
+        echo Scanning Directory...
+        "%PYTHON_EXE%" "%SCRIPT_PATH%" --scan-directory
+    ) else if "%choice%"=="2" (
+        echo Fetching Recent Activities...
+        "%PYTHON_EXE%" "%SCRIPT_PATH%" --recent-activities
+    ) else if "%choice%"=="3" (
+        echo Searching for Specific Process...
+        "%PYTHON_EXE%" "%SCRIPT_PATH%" --specific-process
+    ) else if "%choice%"=="4" (
+        echo Exiting...
+        exit /b 0
+    ) else (
+        echo Invalid choice. Please try again.
+        goto :menu
+    )
 
-def log_error(message):
-    """Log errors to a text file."""
-    print_status(message, 'error')
-    
-    # Create 'output' directory if it doesn't exist
-    os.makedirs(os.path.dirname(ERROR_LOG_PATH), exist_ok=True)
-    
-    # Use filelock to handle file access issues
-    lock_path = ERROR_LOG_PATH + '.lock'
-    lock = FileLock(lock_path, timeout=10)
-
-    try:
-        with lock:
-            with open(ERROR_LOG_PATH, 'a') as f:
-                f.write(f"{datetime.now()}: {message}\n")
-    except IOError as e:
-        print_status(f"Failed to write to error log: {e}", 'error')
-
-def run_command(command):
-    """Execute a command and return its output or an error message."""
-    try:
-        result = subprocess.check_output(command, shell=True, text=True).strip()
-        return result, None
-    except subprocess.CalledProcessError as e:
-        return None, str(e)
-
-def scan_directory(directory, file_names=None):
-    """Recursively scan a directory for specific files."""
-    results = {file: [] for file in file_names} if file_names else []
-    total_files = 0
-    scanned_files = 0
-    directories_to_scan = [directory]
-
-    while directories_to_scan:
-        current_dir = directories_to_scan.pop()
-        if not os.path.exists(current_dir):
-            log_error(f"Directory does not exist: {current_dir}")
-            continue
-        
-        try:
-            with os.scandir(current_dir) as it:
-                for entry in it:
-                    if entry.is_dir(follow_symlinks=False):
-                        directories_to_scan.append(entry.path)
-                    elif file_names:
-                        for file in file_names:
-                            if file.lower() in entry.name.lower():
-                                path = entry.path
-                                results[file].append(path)
-                                print_status(f"Found trace of '{file}' in {path}", 'specific')
-                    scanned_files += 1
-                    total_files += 1
-
-            # Print directory scan results
-            if not results:
-                print_status(f"Scanning through folder {current_dir} - clear", 'success')
-            else:
-                print_status(f"Scanning through folder {current_dir} - found traces", 'error')
-        except PermissionError:
-            log_error(f"Permission denied: {current_dir}")
-            continue
-        except IOError as e:
-            log_error(f"IOError while scanning directory {current_dir}: {e}")
-
-    return results, total_files, scanned_files
-
-def find_process_traces(name):
-    """Find all traces of the specific process."""
-    traces = []
-    directories = [
-        'C:\\Windows\\System32',
-        'C:\\Program Files',
-        'C:\\Program Files (x86)',
-        'C:\\Users\\Public',
-        'C:\\Windows\\Temp',
-        'C:\\Users\\%USERNAME%\\AppData\\Local',
-        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
-        'C:\\$Recycle.Bin',
-        'C:\\ProgramData',
-        'C:\\Documents and Settings',
-        'C:\\$Windows.~BT'
-    ]
-
-    # Scan specified directories
-    for directory in directories:
-        directory = directory.replace('%USERNAME%', getpass.getuser())
-        if os.path.exists(directory):
-            print_status(f"Scanning directory: {directory}", 'normal')
-            for root, dirs, files in os.walk(directory):
-                for file in files:
-                    if name.lower() in file.lower():
-                        path = os.path.join(root, file)
-                        traces.append(path)
-                        print_status(f"Found specific process: {name} in {path}", 'specific')
-    return traces
-
-def handle_recent_activities():
-    """Retrieve and handle recent activities."""
-    try:
-        user = getpass.getuser()
-        log_path = os.path.join(os.getenv('USERPROFILE', ''), 'AppData', 'Local', 'Microsoft', 'Windows', 'Logs', 'Application')
-        recent_activities = []
-        if os.path.exists(log_path):
-            for root, dirs, files in os.walk(log_path):
-                for file in files:
-                    if file.lower().endswith('.log'):
-                        path = os.path.join(root, file)
-                        recent_activities.append(path)
-        return recent_activities
-    except Exception as e:
-        log_error(f"Error retrieving recent activities: {e}")
-
-def main():
-    """Main function to handle user input and processing."""
-    print_status("Starting process...", 'normal')
-
-    while True:
-        print_status("Choose an option:\n1. Active Processes\n2. Recent Activities\n3. Specific Process\n4. Scan Directory\n5. Exit", 'normal')
-        choice = input("Enter your choice: ")
-
-        if choice == '1':
-            # Handle active processes
-            pass
-        elif choice == '2':
-            recent_activities = handle_recent_activities()
-            if recent_activities:
-                print_status(f"Recent activities found: {recent_activities}", 'success')
-            else:
-                print_status("No recent activities found", 'success')
-        elif choice == '3':
-            process_name = input("Enter process name to search for: ")
-            traces = find_process_traces(process_name)
-            if traces:
-                send_results_to_webhook("Process Traces", f"Found traces of {process_name}: {traces}", WEBHOOK_URLS['process_traces'])
-                print_status(f"Process traces found: {traces}", 'specific')
-            else:
-                print_status(f"No traces found for {process_name}", 'success')
-        elif choice == '4':
-            directory = input("Enter the directory to scan: ")
-            file_names = input("Enter the filenames to search for (comma-separated): ").split(',')
-            results, total_files, scanned_files = scan_directory(directory, [name.strip() for name in file_names])
-            description = '\n'.join([f"File '{file}' found in: {paths}" for file, paths in results.items() if paths])
-            if description:
-                send_results_to_webhook("Scan Results", description, WEBHOOK_URLS['process_traces'])
-                print_status("Scan results sent to webhook", 'success')
-            else:
-                print_status("No files found during scan", 'success')
-        elif choice == '5':
-            print_status("Exiting...", 'normal')
-            break
-        else:
-            print_status("Invalid choice. Please try again.", 'error')
-
-if __name__ == "__main__":
-    main()
+goto :menu
