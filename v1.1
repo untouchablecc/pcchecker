@@ -61,16 +61,31 @@ def scan_database():
     # Add detailed scan results here.
     return message
 
-def scan_all_files():
-    file_types = {
-        'Spotify': 'C:\\Program Files\\Spotify',
-        'Steam': 'C:\\Program Files (x86)\\Steam',
-        'LGHub': 'C:\\Program Files\\LGHUB',
-        # Add other file types and paths here.
+def scan_files(file_choice):
+    file_paths = {
+        'steam': 'C:\\Program Files (x86)\\Steam',
+        'spotify': 'C:\\Program Files\\Spotify',
+        'razer_cortex': 'C:\\Program Files (x86)\\Razer\\Razer Cortex',
+        'razer_synapse': 'C:\\Program Files (x86)\\Razer\\Synapse',
+        'lghub': 'C:\\Program Files\\LGHUB',
+        'chrome': 'C:\\Program Files\\Google\\Chrome\\Application',
+        'tiktok_live_studio': 'C:\\Program Files\\TikTok LIVE Studio',
+        'voicemeeterpro': 'C:\\Program Files (x86)\\VB\\VoicemeeterPro',
+        'brave': 'C:\\Program Files\\BraveSoftware\\Brave-Browser'
     }
+
+    if file_choice.lower() == 'all':
+        files_to_scan = file_paths.items()
+    else:
+        files_to_scan = [(name, path) for name, path in file_paths.items() if name == file_choice.lower()]
+
     message = "Scanning for the following files:\n"
-    for name, path in file_types.items():
-        message += f"- {name} at {path}\n"
+    for name, path in files_to_scan:
+        if os.path.exists(path):
+            message += f"- {name.capitalize()} found at {path}\n"
+        else:
+            message += f"- {name.capitalize()} not found at {path}\n"
+
     return message
 
 def main():
@@ -84,6 +99,9 @@ def main():
     
     choice = input("Enter your choice (1-6): ")
     
+    # Get webhook delay
+    webhook_delay = int(input("Enter webhook delay in seconds: "))
+    
     if choice == '1':
         print("1. Scan all processes and admin processes.")
         send_webhook(WEBHOOK_URLS['admin_processes'], scan_processes())
@@ -93,12 +111,9 @@ def main():
         send_webhook(WEBHOOK_URLS['database'], scan_database())
     elif choice == '3':
         print("3. Scan the PC.")
-        print("Available options: Spotify, Steam, LGHub, All")
+        print("Available options: steam, spotify, razer_cortex, razer_synapse, lghub, chrome, tiktok_live_studio, voicemeeterpro, brave, All")
         file_choice = input("Enter the file to scan or 'All': ")
-        if file_choice.lower() == 'all':
-            message = scan_all_files()
-        else:
-            message = scan_all_files()
+        message = scan_files(file_choice)
         send_webhook(WEBHOOK_URLS['traces'], message)
     elif choice == '4':
         print("4. System information.")
