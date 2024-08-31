@@ -1,66 +1,321 @@
-import logging
 import os
-import sys
+import subprocess
+import requests
+import json
+import time
+import platform
+import getpass
+import tempfile
+from datetime import datetime, timedelta
 
-# Set up logging
-def setup_logging():
+# Function to install required packages
+def install_packages():
+    """Install required Python packages."""
+    required_packages = ['requests']
     try:
-        log_file_path = os.path.join(os.getenv('APPDATA'), 'MyPythonScript', 'scan_log.txt')
-        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-        logging.basicConfig(
-            filename=log_file_path,
-            level=logging.DEBUG,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+        import pkg_resources
+        installed_packages = {pkg.key for pkg in pkg_resources.working_set}
+        missing_packages = [pkg for pkg in required_packages if pkg not in installed_packages]
+        if missing_packages:
+            print("Installing missing packages...")
+            subprocess.check_call([platform.python, '-m', 'pip', 'install'] + missing_packages)
+            print("Installation complete.")
+        else:
+            print("All required packages are already installed.")
+    except Exception as e:
+        print(f"Error checking/installing packages: {e}")
+
+# Automatically install required packages
+install_packages()
+
+# Webhook URLs
+DATABASE_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP'
+PROCESS_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac'
+RECENT_ACTIVITY_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK'
+SYSTEM_INFO_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
+SIZE_SEARCHER_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
+DEEP_SEARCH_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
+
+# List of specific files to detect
+SPECIFIC_FILES = [
+    'Spotify', 'RazerCortex', 'Razer Synapse 3', 'lghub', 'chrome',
+    'TikTok LIVE Studio', 'voicemeeterpro', 'brave', 'bootstrapper',
+    'solara', 'solarab2', 'solarabootstrapper', 'electron', 'wave',
+    'waveinstaller', 'mooze'
+]
+
+# List of specific sizes to flag
+SPECIFIC_SIZES = ['35623', '796', '797']
+
+def send_to_batch(message, status='normal'):
+    """Write real-time status updates to a file for the batch script to read."""
+    color_code = {
+        'error': '91',     # Red
+        'warning': '93',   # Yellow
+        'success': '92',   # Green
+        'normal': '0',     # Default
+        'info': '97'       # White (for info)
+    }
+    color = color_code.get(status, '0')
+    with open('status_update.txt', 'a') as file:
+        file.write(f"{color} {message}\n")
+
+def send_embed_to_webhook(title, description, color, url):
+    """Send a message to the webhook with an embedded format."""
+    max_description_length = 2000
+    descriptions = [description[i:i+max_description_length] for i in range(0, len(description), max_description_length)]
+
+    for desc in descriptions:
+        embed = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": desc,
+                    "color": color
+                }
+            ]
+        }
+        try:
+            response = requests.post(url, json=embed)
+            response.raise_for_status()
+            print_status(f"Embed sent to webhook: {title}", 'success')
+        except requests.RequestException as e:
+            print_status(f"Failed to send embed to webhook: {e}", 'error')
+        
+        time.sleep(1)  # Ensure delay between webhook requests
+
+def print_status(message, status='normal'):
+    """Print status messages with color coding for real-time feedback."""
+    color_code = {
+        'error': '91',     # Red
+        'warning': '93',   # Yellow
+        'success': '92',   # Green
+        'normal': '0',     # Default
+        'info': '97'       # White (for info)
+    }
+    print(f"\033[{color_code[status]}m{message}\033[0m")
+
+def write_log(log_path, message):
+    """Write messages to a log file."""
+    with open(log_path, 'a') as log_file:
+        log_file.write(message + "\n")
+
+def run_command(command):
+    """Execute a command and return its output or an error message."""
+    try:
+        result = subprocess.check_output(command, shell=True, text=True).strip()
+        return result, None
+    except subprocess.CalledProcessError as e:
+        return None, str(e)
+
+def get_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get processes: {error}")
+        print_status(f"Failed to get processes: {error}", 'error')
+    else:
+        write_log(log_file, "Retrieved processes.")
+        print_status("Retrieved processes.", 'success')
+    return output or f"Error: {error}"
+
+def get_admin_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get admin processes: {error}")
+        print_status(f"Failed to get admin processes: {error}", 'error')
+    else:
+        write_log(log_file, "Retrieved admin processes.")
+        print_status("Retrieved admin processes.", 'success')
+    return output or f"Error: {error}"
+
+def format_processes(processes):
+    try:
+        processes_json = json.loads(processes)
+        formatted = []
+        for process in processes_json:
+            name = process.get("Name", "Unknown")
+            pid = process.get("Id", "Unknown")
+            path = process.get("Path", "Unknown")
+            formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
+        return "\n".join(formatted) if formatted else "No processes detected"
+    except json.JSONDecodeError as e:
+        write_log(log_file, f"Format Processes Error: {e}")
+        print_status(f"Format Processes Error: {e}", 'error')
+        return f"Error decoding process data: {str(e)}"
+
+def find_specific_files():
+    """Find specific files and report back with real-time status."""
+    traces = []
+    directories = [
+        'C:\\Windows\\System32',
+        'C:\\Program Files',
+        'C:\\Program Files (x86)',
+        'C:\\Users\\Public',
+        'C:\\Windows\\Temp',
+        'C:\\Users\\%USERNAME%\\AppData\\Local',
+        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
+        'C:\\$Recycle.Bin',
+        'C:\\ProgramData',
+        'C:\\Documents and Settings',
+        'C:\\$Windows.~BT'
+    ]
+
+    for directory in directories:
+        directory = directory.replace('%USERNAME%', getpass.getuser())
+        if os.path.exists(directory):
+            send_to_batch(f"Scanning directory: {directory}", 'info')
+            print_status(f"Scanning directory: {directory}", 'normal')
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    if any(app.lower() in file.lower() for app in SPECIFIC_FILES):
+                        path = os.path.join(root, file)
+                        traces.append(path)
+                        send_to_batch(f"Found trace: {path}", 'warning')
+                        print_status(f"Found trace: {path}", 'warning')
+        else:
+            send_to_batch(f"Directory not found: {directory}", 'error')
+    
+    return traces
+
+def deep_search_files():
+    """Perform a deep search for specific files."""
+    traces = find_specific_files()
+    if traces:
+        description = "Found specific files:\n" + "\n".join(traces)
+        send_embed_to_webhook(
+            title="Deep Search Results",
+            description=description,
+            color=0x00FF00,  # Green color
+            url=DEEP_SEARCH_WEBHOOK_URL
         )
-        logging.info("Logging setup complete.")
-    except Exception as e:
-        print(f"Failed to set up logging: {e}", file=sys.stderr)
-        sys.exit(1)
+    else:
+        send_to_batch("No specific files found.", 'success')
+        print_status("No specific files found.", 'success')
 
-# Scan directories for traces
-def scan_directories(base_dir, trace_keywords):
-    try:
-        logging.info(f"Scanning directory: {base_dir}")
-        found_any_trace = False
-        for root, dirs, files in os.walk(base_dir):
-            for file_name in files:
-                file_path = os.path.join(root, file_name)
-                for keyword in trace_keywords:
-                    if keyword.lower() in file_name.lower():
-                        logging.info(f"Found trace: {file_path}")
-                        found_any_trace = True
-        if not found_any_trace:
-            logging.info(f"No traces found in directory: {base_dir}")
-    except Exception as e:
-        logging.error(f"Error scanning directory {base_dir}: {e}")
+def size_searcher():
+    """Search for files with specific sizes and report."""
+    found_files = []
+    directories = [
+        'C:\\Windows\\System32',
+        'C:\\Program Files',
+        'C:\\Program Files (x86)',
+        'C:\\Users\\Public',
+        'C:\\Windows\\Temp',
+        'C:\\Users\\%USERNAME%\\AppData\\Local',
+        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
+        'C:\\$Recycle.Bin',
+        'C:\\ProgramData',
+        'C:\\Documents and Settings',
+        'C:\\$Windows.~BT'
+    ]
 
-# Main function
+    for directory in directories:
+        directory = directory.replace('%USERNAME%', getpass.getuser())
+        if os.path.exists(directory):
+            send_to_batch(f"Scanning directory for sizes: {directory}", 'info')
+            print_status(f"Scanning directory for sizes: {directory}", 'normal')
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    path = os.path.join(root, file)
+                    try:
+                        size_kb = os.path.getsize(path) / 1024
+                        size_kb = round(size_kb)
+                        if str(size_kb) in SPECIFIC_SIZES:
+                            found_files.append(f"{path} - {size_kb} KB")
+                            send_to_batch(f"Found file with specific size: {path} - {size_kb} KB", 'warning')
+                            print_status(f"Found file with specific size: {path} - {size_kb} KB", 'warning')
+                    except (OSError, FileNotFoundError) as e:
+                        send_to_batch(f"Error accessing file: {path}", 'error')
+                        print_status(f"Error accessing file: {path}", 'error')
+
+    if found_files:
+        description = "Files with specific sizes found:\n" + "\n".join(found_files)
+        send_embed_to_webhook(
+            title="Size Searcher Results",
+            description=description,
+            color=0xFF0000,  # Red color
+            url=SIZE_SEARCHER_WEBHOOK_URL
+        )
+    else:
+        send_to_batch("No files with specific sizes found.", 'success')
+        print_status("No files with specific sizes found.", 'success')
+
+def search_custom_file(file_name):
+    """Search for a user-specified file."""
+    found_files = []
+    directories = [
+        'C:\\Windows\\System32',
+        'C:\\Program Files',
+        'C:\\Program Files (x86)',
+        'C:\\Users\\Public',
+        'C:\\Windows\\Temp',
+        'C:\\Users\\%USERNAME%\\AppData\\Local',
+        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
+        'C:\\$Recycle.Bin',
+        'C:\\ProgramData',
+        'C:\\Documents and Settings',
+        'C:\\$Windows.~BT'
+    ]
+
+    for directory in directories:
+        directory = directory.replace('%USERNAME%', getpass.getuser())
+        if os.path.exists(directory):
+            send_to_batch(f"Scanning directory for custom file: {directory}", 'info')
+            print_status(f"Scanning directory for custom file: {directory}", 'normal')
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    if file_name.lower() in file.lower():
+                        path = os.path.join(root, file)
+                        found_files.append(path)
+                        send_to_batch(f"Found custom file trace: {path}", 'warning')
+                        print_status(f"Found custom file trace: {path}", 'warning')
+        else:
+            send_to_batch(f"Directory not found: {directory}", 'error')
+    
+    if found_files:
+        description = f"Traces of custom file '{file_name}' found:\n" + "\n".join(found_files)
+        send_embed_to_webhook(
+            title="Custom File Search Results",
+            description=description,
+            color=0xFFFF00,  # Yellow color
+            url=RECENT_ACTIVITY_WEBHOOK_URL
+        )
+    else:
+        send_to_batch(f"No traces of custom file '{file_name}' found.", 'success')
+        print_status(f"No traces of custom file '{file_name}' found.", 'success')
+
 def main():
-    setup_logging()
+    """Main function to handle user input and execute searches."""
+    while True:
+        print_status("Select an option:", 'info')
+        print_status("1. Check specific apps", 'info')
+        print_status("2. Size searcher", 'info')
+        print_status("3. Deep search", 'info')
+        print_status("4. Search for custom file", 'info')
+        print_status("5. Exit", 'info')
+        
+        choice = input("Enter choice: ").strip()
 
-    # Define the directories to scan and the keywords to look for
-    directories_to_scan = [
-        'C:\\',  # Root of the C drive
-        os.path.join(os.getenv('APPDATA'), 'Local'),
-        os.path.join(os.getenv('APPDATA'), 'LocalLow'),
-        os.path.join(os.getenv('APPDATA'), 'Roaming')
-    ]
-    trace_keywords = [
-        'steam',
-        'Spotify',
-        'RazerCortex',
-        'Razer Synapse 3',
-        'lghub',
-        'chrome',
-        'TikTok LIVE Studio',
-        'voicemeeterpro',
-        'brave'
-    ]
-
-    for directory in directories_to_scan:
-        scan_directories(directory, trace_keywords)
-
-    logging.info("Scan complete.")
+        if choice == '1':
+            print_status("Starting specific apps check...", 'info')
+            find_specific_files()
+        elif choice == '2':
+            print_status("Starting size searcher...", 'info')
+            size_searcher()
+        elif choice == '3':
+            print_status("Starting deep search...", 'info')
+            deep_search_files()
+        elif choice == '4':
+            file_name = input("Enter the name of the file to search for: ").strip()
+            print_status(f"Starting search for custom file '{file_name}'...", 'info')
+            search_custom_file(file_name)
+        elif choice == '5':
+            print_status("Exiting...", 'info')
+            break
+        else:
+            print_status("Invalid choice. Please enter a number between 1 and 5.", 'error')
 
 if __name__ == "__main__":
     main()
