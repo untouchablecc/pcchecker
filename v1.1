@@ -1,306 +1,99 @@
-import os
-import subprocess
 import requests
 import json
+import sys
 import time
-import platform
-import getpass
-import tempfile
-from datetime import datetime, timedelta
+import os
+import sqlite3
+from datetime import datetime
 
-# Webhook URLs
+# Define webhook URLs
 WEBHOOK_URLS = {
-    'processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
-    'admin_processes': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
-    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',
-    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
-    'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_',
-    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
-    'traces': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP'
+    '1': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',  # Processes
+    '2': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',  # Database
+    '3': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',  # Traces
+    '4': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',  # Recent Activity
+    '5': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',  # Errors
+    '6': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'   # System Info
 }
 
-# Global variables
-log_file = None
-webhook_delay = 1
-
-def send_embed_to_webhook(title, description, color, url):
-    """Send a message to the webhook with an embedded format."""
-    max_description_length = 2000
-    descriptions = [description[i:i+max_description_length] for i in range(0, len(description), max_description_length)]
-
-    for desc in descriptions:
-        embed = {
-            "embeds": [
-                {
-                    "title": title,
-                    "description": desc,
-                    "color": color
-                }
-            ]
-        }
-        try:
-            response = requests.post(url, json=embed)
-            response.raise_for_status()
-            print_status(f"Embed sent to webhook: {title}", 'success')
-        except requests.RequestException as e:
-            print_status(f"Failed to send embed to webhook: {e}", 'error')
-        
-        time.sleep(webhook_delay)  # Ensure delay between webhook requests
-
-def print_status(message, status='normal'):
-    """Print status messages with color coding for real-time feedback."""
-    color_code = {
-        'error': '91',     # Red
-        'warning': '93',   # Yellow
-        'success': '92',   # Green
-        'normal': '0'      # Default
+def send_webhook(url, title, description, color=0x00FF00):
+    embed = {
+        "embeds": [
+            {
+                "title": title,
+                "description": description,
+                "color": color
+            }
+        ]
     }
-    print(f"\033[{color_code[status]}m{message}\033[0m")
-
-def write_log(message):
-    """Write messages to a log file."""
-    if log_file:
-        with open(log_file, 'a') as log_file_handle:
-            log_file_handle.write(message + "\n")
-
-def run_command(command):
-    """Execute a command and return its output or an error message."""
     try:
-        result = subprocess.check_output(command, shell=True, text=True).strip()
-        return result, None
-    except subprocess.CalledProcessError as e:
-        return None, str(e)
+        response = requests.post(url, json=embed)
+        response.raise_for_status()
+        print(f"Successfully sent to webhook: {title}")
+    except requests.RequestException as e:
+        print(f"Failed to send webhook: {e}")
 
-def scan_directory(directory, specific_files=None):
-    """Recursively scan a directory for specific files."""
-    results = {file: [] for file in specific_files} if specific_files else []
-    directories_to_scan = [directory]
-    total_files = 0
-    scanned_files = 0
-
-    while directories_to_scan:
-        current_dir = directories_to_scan.pop()
-        if not os.path.exists(current_dir):
-            print_status(f"Directory does not exist: {current_dir}", 'error')
-            continue
-        
-        try:
-            with os.scandir(current_dir) as it:
-                for entry in it:
-                    if entry.is_dir(follow_symlinks=False):
-                        directories_to_scan.append(entry.path)
-                    elif specific_files:
-                        for file in specific_files:
-                            if file.lower() in entry.name.lower():
-                                path = entry.path
-                                results[file].append(path)
-                                write_log(f"Found file: {path}")
-                                print_status(f"Found file: {path}", 'warning')
-                    scanned_files += 1
-                    total_files += 1
-        except PermissionError:
-            write_log(f"Permission denied: {current_dir}")
-            print_status(f"Permission denied: {current_dir}", 'error')
-            continue
-
-    return results, total_files, scanned_files
-
-def get_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        write_log(f"Failed to get processes: {error}")
-        print_status(f"Failed to get processes: {error}", 'error')
-        send_embed_to_webhook("Error - Get Processes", error, 0xFF0000, WEBHOOK_URLS['error'])
-    else:
-        write_log("Retrieved processes.")
-        print_status("Retrieved processes.", 'success')
-    return output or f"Error: {error}"
-
-def get_admin_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        write_log(f"Failed to get admin processes: {error}")
-        print_status(f"Failed to get admin processes: {error}", 'error')
-        send_embed_to_webhook("Error - Get Admin Processes", error, 0xFF0000, WEBHOOK_URLS['error'])
-    else:
-        write_log("Retrieved admin processes.")
-        print_status("Retrieved admin processes.", 'success')
-    return output or f"Error: {error}"
-
-def format_processes(processes):
-    try:
-        processes_json = json.loads(processes)
-        formatted = []
-        for process in processes_json:
-            name = process.get("Name", "Unknown")
-            pid = process.get("Id", "Unknown")
-            path = process.get("Path", "Unknown")
-            formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
-        return "\n".join(formatted) if formatted else "No processes detected"
-    except json.JSONDecodeError as e:
-        write_log(f"Format Processes Error: {e}")
-        print_status(f"Format Processes Error: {e}", 'error')
-        return f"Error decoding process data: {str(e)}"
-
-def find_process_traces(name):
-    """Find all traces of the specific process."""
-    traces = []
-    directories = [
-        'C:\\Windows\\System32',
-        'C:\\Program Files',
-        'C:\\Program Files (x86)',
-        'C:\\Users\\Public',
-        'C:\\Windows\\Temp',
-        'C:\\Users\\%USERNAME%\\AppData\\Local',
-        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
-        'C:\\$Recycle.Bin',
-        'C:\\ProgramData',
-        'C:\\Documents and Settings',
-        'C:\\$Windows.~BT'
-    ]
-
-    # Scan specified directories
-    for directory in directories:
-        directory = directory.replace('%USERNAME%', getpass.getuser())
-        if os.path.exists(directory):
-            write_log(f"Scanning directory: {directory}")
-            print_status(f"Scanning directory: {directory}", 'normal')
-            for root, dirs, files in os.walk(directory):
-                for file in files:
-                    if name.lower() in file.lower():
-                        path = os.path.join(root, file)
-                        traces.append(path)
-                        write_log(f"Trace found: {path}")
-                        print_status(f"Trace found: {path}", 'warning')
-        else:
-            print_status(f"Directory does not exist: {directory}", 'error')
-    
-    return traces
+def scan_browser_history():
+    # Placeholder function to simulate browser history scanning
+    # You need to replace this with actual code to scan browser history
+    return "Browser history results"
 
 def scan_recent_activity():
-    """Scan recent activity like recently opened files and temp files."""
-    recent_files = []
-    user = getpass.getuser()
-    paths_to_check = [
-        f'C:\\Users\\{user}\\AppData\\Local\\Temp',
-        f'C:\\Users\\{user}\\AppData\\Roaming',
-        'C:\\$Recycle.Bin'
-    ]
-    for path in paths_to_check:
-        if os.path.exists(path):
-            write_log(f"Scanning recent activity in: {path}")
-            print_status(f"Scanning recent activity in: {path}", 'normal')
-            for root, dirs, files in os.walk(path):
-                for file in files:
-                    recent_files.append(os.path.join(root, file))
-                    write_log(f"Recent file: {file}")
-                    print_status(f"Recent file: {file}", 'warning')
-    
-    return recent_files
+    # Placeholder function to simulate recent activity scanning
+    # You need to replace this with actual code to scan recent activity
+    return "Recent activity results"
 
-def get_system_info():
-    """Get system information."""
-    system_info = {
-        "System": platform.system(),
-        "Node Name": platform.node(),
-        "Release": platform.release(),
-        "Version": platform.version(),
-        "Machine": platform.machine(),
-        "Processor": platform.processor(),
-        "User": getpass.getuser(),
-        "System Architecture": platform.architecture(),
-        "Python Version": platform.python_version()
-    }
-    
-    info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
-    return info_str
+def get_processes():
+    # Placeholder function to simulate process scanning
+    # You need to replace this with actual code to get process information
+    return "Process information"
 
 def get_database_results():
-    """Simulate a database search and provide results."""
-    database_results = {
-        "Spotify": ["C:\\Users\\Public\\Documents\\SpotifyLogs\\log.txt"],
-        "Steam": ["C:\\Program Files (x86)\\Steam\\logs\\connection_log.txt"],
-        "LG Hub": ["C:\\Program Files\\LGHUB\\logs\\lghub.log"]
-    }
-    
-    formatted_results = []
-    for key, paths in database_results.items():
-        formatted_results.append(f"**{key}**:\n" + "\n".join(paths))
-    
-    if not formatted_results:
-        formatted_results.append("No database results found.")
-    
-    return "\n".join(formatted_results)
+    # Placeholder function to simulate database results
+    # You need to replace this with actual code to get database results
+    return "Database results"
+
+def get_system_info():
+    # Placeholder function to simulate system information
+    # You need to replace this with actual code to get system information
+    return "System information"
+
+def scan_for_traces():
+    # Placeholder function to simulate scanning for traces
+    # You need to replace this with actual code to scan for traces
+    return "Traces results"
 
 def main():
-    global log_file
-    global webhook_delay
+    if len(sys.argv) != 3:
+        print("Usage: python NiggaTool.py <option> <delay>")
+        sys.exit(1)
 
-    # Set up log file
-    log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
-    
-    while True:
-        # User input
-        print("\nPlease select an option:")
-        print("1. Get Processes")
-        print("2. Get Admin Processes")
-        print("3. Scan for Process Traces")
-        print("4. Scan Recent Activity")
-        print("5. Get Database Results")
-        print("6. Get System Information")
-        print("7. Exit")
-        print("")
+    option = sys.argv[1]
+    delay = int(sys.argv[2])
+    webhook_url = WEBHOOK_URLS.get(option, None)
 
-        choice = input("Enter your choice (1-7): ").strip()
+    if not webhook_url:
+        print("Invalid option")
+        sys.exit(1)
 
-        if choice == '7':
-            print("Exiting...")
-            break
+    result = ""
+    if option == '1':  # Get Processes
+        result = get_processes()
+    elif option == '2':  # Get Database Results
+        result = get_database_results()
+    elif option == '3':  # Scan for Traces
+        result = scan_for_traces()
+    elif option == '4':  # Scan Recent Activity
+        result = scan_recent_activity()
+    elif option == '5':  # Errors
+        result = "Errors information"
+    elif option == '6':  # System Information
+        result = get_system_info()
 
-        print("Enter webhook delay in seconds: ")
-        try:
-            webhook_delay = int(input().strip())
-        except ValueError:
-            print("Invalid delay value. Exiting...")
-            break
+    if result:
+        send_webhook(webhook_url, "Results", result)
 
-        if choice == '1':
-            processes = get_processes()
-            formatted_processes = format_processes(processes)
-            send_embed_to_webhook("Processes", formatted_processes, 0x00FF00, WEBHOOK_URLS['processes'])
-
-        elif choice == '2':
-            admin_processes = get_admin_processes()
-            formatted_admin_processes = format_processes(admin_processes)
-            send_embed_to_webhook("Admin Processes", formatted_admin_processes, 0x00FF00, WEBHOOK_URLS['admin_processes'])
-
-        elif choice == '3':
-            print("Enter the process name to trace (e.g., 'spotify'): ")
-            process_name = input().strip()
-            traces = find_process_traces(process_name)
-            if traces:
-                traces_info = "\n".join(traces)
-            else:
-                traces_info = f"No traces found for process: {process_name}"
-            send_embed_to_webhook("Process Traces", traces_info, 0xFFFF00, WEBHOOK_URLS['traces'])
-
-        elif choice == '4':
-            recent_files = scan_recent_activity()
-            recent_activity_info = "\n".join(recent_files)
-            send_embed_to_webhook("Recent Activity", recent_activity_info, 0x00FFFF, WEBHOOK_URLS['recent_activity'])
-
-        elif choice == '5':
-            database_results = get_database_results()
-            send_embed_to_webhook("Database Results", database_results, 0xFF00FF, WEBHOOK_URLS['database'])
-
-        elif choice == '6':
-            system_info = get_system_info()
-            send_embed_to_webhook("System Information", system_info, 0xFF00FF, WEBHOOK_URLS['system_info'])
-
-        else:
-            print("Invalid choice. Please try again.")
+    time.sleep(delay)
 
 if __name__ == "__main__":
     main()
