@@ -4,7 +4,7 @@ import requests
 import logging
 
 # Define the paths and webhooks
-log_file_path = 'scan_log.txt'
+log_file_path = 'C:\\Users\\%USERNAME%\\AppData\\Roaming\\MyPythonScript\\scan_log.txt'
 webhook_url = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
 
 # Setup logging
@@ -42,7 +42,7 @@ def scan_folders(path):
         log_message(f"Error scanning {path}: {str(e)}", 'ERROR')
 
     if not found_traces:
-        log_message("No traces found.", 'INFO')
+        log_message("No traces found in this folder.", 'INFO')
 
 def main():
     log_message("Starting scan...")
