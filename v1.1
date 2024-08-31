@@ -52,6 +52,7 @@ def main():
     
     try:
         for directory in directories_to_scan:
+            directory = directory.replace('%USERNAME%', os.getlogin())
             print(f"Scanning through folder {directory}")
             results = scan_directory(directory, results_log_path)
             if results:
