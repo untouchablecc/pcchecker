@@ -1,20 +1,10 @@
 import os
-import sys
 import requests
-import platform
-import psutil
-import socket
-import datetime
+import sys
 from pathlib import Path
 
-# Corrected Webhooks
 WEBHOOKS = {
-    'system_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
     'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
-    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',
-    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
-    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
-    'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
 }
 
 def send_webhook(webhook_url, content):
@@ -24,33 +14,19 @@ def send_webhook(webhook_url, content):
     except requests.exceptions.RequestException as e:
         print(f"Failed to send webhook: {e}")
 
-def scan_directory(directory):
+def scan_directory(directory, trace_file):
     results = []
     for root, dirs, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
-            # Add your scanning logic here
-            # For example purposes, just print the file path
-            results.append(f"Found file: {file_path}")
+            # Example trace detection logic
+            if 'example' in file.lower():  # Replace with actual detection logic
+                results.append(f"Found trace: {file_path}")
+    # Write results to the file
+    with open(trace_file, 'a') as f:
+        for result in results:
+            f.write(result + '\n')
     return results
-
-def get_system_info():
-    system_info = {
-        "System": platform.system(),
-        "Node Name": platform.node(),
-        "Release": platform.release(),
-        "Version": platform.version(),
-        "Machine": platform.machine(),
-        "Processor": platform.processor(),
-        "Public IP": requests.get('https://api.ipify.org').text,
-        "HWID": platform.node(),
-        "Start Time": datetime.datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S'),
-    }
-    return system_info
-
-def write_to_file(path, content):
-    with open(path, 'w') as f:
-        f.write(content)
 
 def main():
     if len(sys.argv) < 2:
@@ -58,40 +34,31 @@ def main():
         return
 
     option = sys.argv[1]
-    output_folder = os.path.join(os.getenv('APPDATA'), 'MyPythonScript')
+    if option != '--scan-directory':
+        print("Invalid option.")
+        return
+
+    output_folder = os.path.join(Path.home(), 'AppData', 'MyPythonScript')
     Path(output_folder).mkdir(parents=True, exist_ok=True)
-    error_log_path = os.path.join(output_folder, 'error_log.txt')
     results_log_path = os.path.join(output_folder, 'results.txt')
+    error_log_path = os.path.join(output_folder, 'error_log.txt')
 
-    try:
-        if option == '--scan-directory':
-            results = scan_directory("C:\\")  # Adjust the path as needed
-            write_to_file(results_log_path, "\n".join(results))
-            send_webhook(WEBHOOKS['process_traces'], "\n".join(results))
-
-        elif option == '--system-info':
-            system_info = get_system_info()
-            info_str = "\n".join([f"{k}: {v}" for k, v in system_info.items()])
-            write_to_file(results_log_path, info_str)
-            send_webhook(WEBHOOKS['system_info'], info_str)
-
-        elif option == '--database-cache':
-            # Placeholder for database cache logic
-            write_to_file(results_log_path, "Database cache retrieval is not implemented.")
-
-        elif option == '--active-processes':
-            processes = [proc.info for proc in psutil.process_iter(attrs=['pid', 'name', 'username', 'status'])]
-            processes_str = "\n".join([f"PID: {p['pid']}, Name: {p['name']}, User: {p['username']}, Status: {p['status']}" for p in processes])
-            write_to_file(results_log_path, processes_str)
-            send_webhook(WEBHOOKS['system_processes'], processes_str)
-
-        elif option == '--recent-activities':
-            # Placeholder for recent activities logic
-            write_to_file(results_log_path, "Recent activities retrieval is not implemented.")
-
-        else:
-            print("Invalid option provided.")
+    directories_to_scan = [
+        "C:\\",  # Root directory
+        "C:\\Users\\%USERNAME%\\AppData\\Local",  # AppData Local
+        "C:\\Users\\%USERNAME%\\AppData\\Roaming"  # AppData Roaming
+        # Add more directories as needed
+    ]
     
+    try:
+        for directory in directories_to_scan:
+            print(f"Scanning through folder {directory}")
+            results = scan_directory(directory, results_log_path)
+            if results:
+                print(f"Found traces in {directory} - See results.txt for details.")
+                send_webhook(WEBHOOKS['process_traces'], "\n".join(results))
+            else:
+                print(f"Folder {directory} is clear.")
     except Exception as e:
         with open(error_log_path, 'a') as f:
             f.write(f"Error: {e}\n")
