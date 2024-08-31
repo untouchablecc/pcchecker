@@ -1,43 +1,55 @@
 import os
 import json
-import time
 import requests
+import logging
 
 # Define the paths and webhooks
 log_file_path = 'scan_log.txt'
 webhook_url = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
 
-# Function to write to the log file
-def log_message(message, color='white'):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(f"{color}: {message}\n")
-    print(message)  # Optional: For real-time console feedback
+# Setup logging
+logging.basicConfig(filename=log_file_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Start scanning (this is a simplified example)
+def log_message(message, level='INFO'):
+    if level == 'ERROR':
+        logging.error(message)
+    elif level == 'WARNING':
+        logging.warning(message)
+    elif level == 'INFO':
+        logging.info(message)
+    else:
+        logging.info(message)
+    print(message)  # Print to console for real-time feedback
+
+def send_webhook(content):
+    try:
+        response = requests.post(webhook_url, json={"content": content})
+        response.raise_for_status()
+    except requests.RequestException as e:
+        log_message(f"Failed to send webhook: {str(e)}", 'ERROR')
+
 def scan_folders(path):
-    log_message(f"Scanning through folder {path}", 'white')
+    log_message(f"Scanning through folder {path}", 'INFO')
+    found_traces = False
     try:
         for root, dirs, files in os.walk(path):
             for file in files:
                 # Replace this with actual detection logic
-                if 'lghub' in file.lower():
-                    log_message(f"Found trace in {os.path.join(root, file)}", 'green')
-                else:
-                    log_message(f"Scanned {os.path.join(root, file)}", 'white')
+                if any(proc in file.lower() for proc in ['lghub', 'spotify', 'razercortex', 'razersynapse', 'chrome', 'tiktok', 'voicemeeterpro', 'brave']):
+                    found_traces = True
+                    log_message(f"Found trace in {os.path.join(root, file)}", 'WARNING')
     except Exception as e:
-        log_message(f"Error scanning {path}: {str(e)}", 'red')
+        log_message(f"Error scanning {path}: {str(e)}", 'ERROR')
 
-# Main function
+    if not found_traces:
+        log_message("No traces found.", 'INFO')
+
 def main():
     log_message("Starting scan...")
     scan_folders('C:\\')  # Example scan path
     log_message("Scan complete.")
-    # Send results to webhook
-    try:
-        response = requests.post(webhook_url, json={"content": "Scan complete"})
-        response.raise_for_status()
-    except requests.RequestException as e:
-        log_message(f"Failed to send webhook: {str(e)}", 'red')
+    send_webhook("Scan complete. Please check the results.")
+    # You might also want to log the completion message to the webhook or to a specific endpoint
 
 if __name__ == '__main__':
     main()
