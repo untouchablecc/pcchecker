@@ -8,9 +8,9 @@ from datetime import datetime
 
 # Define webhook URLs
 WEBHOOK_URLS = {
-    '1': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',  # Processes
+    '1': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',  # Admin Processes
     '2': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',  # Database
-    '3': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',  # Traces
+    '3': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',  # Process Traces
     '4': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',  # Recent Activity
     '5': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz',  # Errors
     '6': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'   # System Info
@@ -35,32 +35,46 @@ def send_webhook(url, title, description, color=0x00FF00):
 
 def scan_browser_history():
     # Placeholder function to simulate browser history scanning
-    # You need to replace this with actual code to scan browser history
-    return "Browser history results"
+    # Add actual code to scan browser history for Chrome, Firefox, Edge, etc.
+    results = {"Chrome": "Chrome history results", 
+               "Firefox": "Firefox history results",
+               "Edge": "Edge history results"}
+    return results
 
-def scan_recent_activity():
+def scan_recent_activity(activity_type):
     # Placeholder function to simulate recent activity scanning
-    # You need to replace this with actual code to scan recent activity
-    return "Recent activity results"
+    if activity_type == 'deleted':
+        return "Deleted files/activity results"
+    elif activity_type == 'recent':
+        return "Recent files/activity results"
+    elif activity_type == 'renamed':
+        return "Renamed files/activity results"
+    else:
+        return "Invalid activity type"
 
 def get_processes():
     # Placeholder function to simulate process scanning
-    # You need to replace this with actual code to get process information
+    # Add actual code to get process information
     return "Process information"
+
+def get_admin_processes():
+    # Placeholder function to simulate admin process scanning
+    # Add actual code to get admin process information
+    return "Admin process information"
 
 def get_database_results():
     # Placeholder function to simulate database results
-    # You need to replace this with actual code to get database results
-    return "Database results"
+    # Add actual code to get database results including all browser histories, downloads, and PC cache
+    return "Database results including browser history, downloads, and cache"
 
 def get_system_info():
     # Placeholder function to simulate system information
-    # You need to replace this with actual code to get system information
+    # Add actual code to get system information
     return "System information"
 
 def scan_for_traces():
     # Placeholder function to simulate scanning for traces
-    # You need to replace this with actual code to scan for traces
+    # Add actual code to scan for traces
     return "Traces results"
 
 def main():
@@ -77,14 +91,16 @@ def main():
         sys.exit(1)
 
     result = ""
-    if option == '1':  # Get Processes
-        result = get_processes()
+    if option == '1':  # Get Admin Processes
+        result = get_admin_processes()
     elif option == '2':  # Get Database Results
         result = get_database_results()
     elif option == '3':  # Scan for Traces
         result = scan_for_traces()
     elif option == '4':  # Scan Recent Activity
-        result = scan_recent_activity()
+        print("What activity do you want to see? (deleted, recent, renamed)")
+        activity_type = input().strip().lower()
+        result = scan_recent_activity(activity_type)
     elif option == '5':  # Errors
         result = "Errors information"
     elif option == '6':  # System Information
