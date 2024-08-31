@@ -1,118 +1,324 @@
-import sys
-import requests
-import psutil
-import platform
-import json
-from datetime import datetime
 import os
+import subprocess
+import requests
+import json
+import time
+import platform
+import getpass
+import win32clipboard
+import shutil
+import tempfile
+from datetime import datetime, timedelta
 
-# Define webhooks
+# Webhook URLs
 WEBHOOK_URLS = {
-    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
-    'traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
+    'system_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
     'admin_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
+    'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
+    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
     'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
-    'system_info': 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
+    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz'
 }
 
-def send_webhook(url, message):
+# Webhook delay (in seconds)
+WEBHOOK_DELAY = 1
+
+def send_embed_to_webhook(title, description, color, url):
+    """Send a message to the webhook with an embedded format."""
+    max_description_length = 2000
+    descriptions = [description[i:i+max_description_length] for i in range(0, len(description), max_description_length)]
+
+    for desc in descriptions:
+        embed = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": desc,
+                    "color": color
+                }
+            ]
+        }
+        try:
+            response = requests.post(url, json=embed)
+            response.raise_for_status()
+            print_status(f"Embed sent to webhook: {title}", 'success')
+        except requests.RequestException as e:
+            print_status(f"Failed to send embed to webhook: {e}", 'error')
+        
+        time.sleep(WEBHOOK_DELAY)  # Ensure delay between webhook requests
+
+def print_status(message, status='normal'):
+    """Print status messages with color coding for real-time feedback."""
+    color_code = {
+        'error': '91',     # Red
+        'warning': '93',   # Yellow
+        'success': '92',   # Green
+        'normal': '0'      # Default
+    }
+    print(f"\033[{color_code[status]}m{message}\033[0m")
+
+def write_log(log_path, message):
+    """Write messages to a log file."""
+    with open(log_path, 'a') as log_file:
+        log_file.write(message + "\n")
+
+def run_command(command):
+    """Execute a command and return its output or an error message."""
     try:
-        response = requests.post(url, json={"content": message})
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Failed to send webhook: {e}")
+        result = subprocess.check_output(command, shell=True, text=True).strip()
+        return result, None
+    except subprocess.CalledProcessError as e:
+        return None, str(e)
 
-def get_recent_activity(activity_type):
-    message = f"Recent activity ({activity_type}):\n"
-    # Implement detailed scanning based on activity_type (e.g., deleted, recent, renamed)
-    message += "Detailed activity information goes here."
-    return message
+def scan_directory(directory, specific_files=None):
+    """Recursively scan a directory for specific files."""
+    results = {file: [] for file in specific_files} if specific_files else []
+    directories_to_scan = [directory]
+    total_files = 0
+    scanned_files = 0
 
-def get_system_info():
-    info = {
-        'OS': platform.system(),
-        'OS Version': platform.version(),
-        'Architecture': platform.architecture()[0],
-        'CPU': platform.processor(),
-        'RAM': f"{round(psutil.virtual_memory().total / (1024 ** 3))} GB",
-        'Boot Time': datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
-    }
-    message = json.dumps(info, indent=4)
-    return message
+    while directories_to_scan:
+        current_dir = directories_to_scan.pop()
+        if not os.path.exists(current_dir):
+            print_status(f"Directory does not exist: {current_dir}", 'error')
+            continue
+        
+        try:
+            with os.scandir(current_dir) as it:
+                for entry in it:
+                    if entry.is_dir(follow_symlinks=False):
+                        directories_to_scan.append(entry.path)
+                    elif specific_files:
+                        for file in specific_files:
+                            if file.lower() in entry.name.lower():
+                                path = entry.path
+                                results[file].append(path)
+                                write_log(log_file, f"Found file: {path}")
+                                print_status(f"Found file: {path}", 'warning')
+                    scanned_files += 1
+                    total_files += 1
+        except PermissionError:
+            write_log(log_file, f"Permission denied: {current_dir}")
+            print_status(f"Permission denied: {current_dir}", 'error')
+            continue
 
-def scan_processes():
-    processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'username']):
-        processes.append(f"{proc.info['name']} (PID: {proc.info['pid']}, User: {proc.info['username']})")
-    return "\n".join(processes)
+    return results, total_files, scanned_files
 
-def scan_admin_processes():
-    admin_processes = [proc.info for proc in psutil.process_iter(['pid', 'name', 'username']) if proc.info['username'] == 'SYSTEM']
-    message = "\n".join([f"{proc['name']} (PID: {proc['pid']})" for proc in admin_processes])
-    return message
-
-def scan_database():
-    # Implement detailed database scanning here (e.g., browser history, cache, etc.)
-    message = "Database scan results:\n"
-    # Add detailed scan results here.
-    return message
-
-def scan_files(file_choice):
-    file_paths = {
-        'steam': 'C:\\Program Files (x86)\\Steam',
-        'spotify': 'C:\\Program Files\\Spotify',
-        'razer_cortex': 'C:\\Program Files (x86)\\Razer\\Razer Cortex',
-        'razer_synapse': 'C:\\Program Files (x86)\\Razer\\Synapse',
-        'lghub': 'C:\\Program Files\\LGHUB',
-        'chrome': 'C:\\Program Files\\Google\\Chrome\\Application',
-        'tiktok_live_studio': 'C:\\Program Files\\TikTok LIVE Studio',
-        'voicemeeterpro': 'C:\\Program Files (x86)\\VB\\VoicemeeterPro',
-        'brave': 'C:\\Program Files\\BraveSoftware\\Brave-Browser'
-    }
-
-    if file_choice.lower() == 'all':
-        files_to_scan = file_paths.items()
+def get_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get processes: {error}")
+        print_status(f"Failed to get processes: {error}", 'error')
     else:
-        files_to_scan = [(name, path) for name, path in file_paths.items() if name == file_choice.lower()]
+        write_log(log_file, "Retrieved processes.")
+        print_status("Retrieved processes.", 'success')
+    return output or f"Error: {error}"
 
-    message = "Scanning for the following files:\n"
-    for name, path in files_to_scan:
-        if os.path.exists(path):
-            message += f"- {name.capitalize()} found at {path}\n"
-        else:
-            message += f"- {name.capitalize()} not found at {path}\n"
+def get_admin_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get admin processes: {error}")
+        print_status(f"Failed to get admin processes: {error}", 'error')
+    else:
+        write_log(log_file, "Retrieved admin processes.")
+        print_status("Retrieved admin processes.", 'success')
+    return output or f"Error: {error}"
 
-    return message
+def format_processes(processes):
+    try:
+        processes_json = json.loads(processes)
+        formatted = []
+        for process in processes_json:
+            name = process.get("Name", "Unknown")
+            pid = process.get("Id", "Unknown")
+            path = process.get("Path", "Unknown")
+            formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
+        return "\n".join(formatted) if formatted else "No processes detected"
+    except json.JSONDecodeError as e:
+        write_log(log_file, f"Format Processes Error: {e}")
+        print_status(f"Format Processes Error: {e}", 'error')
+        return f"Error decoding process data: {str(e)}"
+
+def find_process_traces(name):
+    """Find all traces of the specific process."""
+    traces = []
+    directories = [
+        'C:\\Windows\\System32',
+        'C:\\Program Files',
+        'C:\\Program Files (x86)',
+        'C:\\Users\\Public',
+        'C:\\Windows\\Temp',
+        'C:\\Users\\%USERNAME%\\AppData\\Local',
+        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
+        'C:\\$Recycle.Bin',
+        'C:\\ProgramData',
+        'C:\\Documents and Settings',
+        'C:\\$Windows.~BT'
+    ]
+
+    # Scan specified directories
+    for directory in directories:
+        directory = directory.replace('%USERNAME%', getpass.getuser())
+        if os.path.exists(directory):
+            write_log(log_file, f"Scanning directory: {directory}")
+            print_status(f"Scanning directory: {directory}", 'normal')
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    if name.lower() in file.lower():
+                        path = os.path.join(root, file)
+                        traces.append(path)
+                        write_log(log_file, f"Found trace: {path}")
+                        print_status(f"Found trace: {path}", 'warning')
+
+    return traces
+
+def find_recently_closed_files():
+    """Find recently closed files from the user's recent files list."""
+    recent_files = []
+    recent_folder = os.path.join(os.path.expanduser('~'), 'Recent')
+    
+    if os.path.exists(recent_folder):
+        try:
+            for file in os.listdir(recent_folder):
+                path = os.path.join(recent_folder, file)
+                recent_files.append(path)
+                write_log(log_file, f"Found recently closed file: {path}")
+                print_status(f"Found recently closed file: {path}", 'warning')
+        except Exception as e:
+            write_log(log_file, f"Failed to get recent files: {e}")
+            print_status(f"Failed to get recent files: {e}", 'error')
+
+    return recent_files
+
+def scan_recent_activity():
+    """Scan recent activity like file deletions, openings, and renaming."""
+    recent_activity = []
+    recent_files = find_recently_closed_files()
+    recent_activity.extend(recent_files)
+
+    # Add more activity detection here if needed
+
+    return recent_activity
+
+def scan_pc(specific_files=None):
+    """Scan the entire PC, checking directories for specific files."""
+    log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
+    results, total_files, scanned_files = scan_directory('C:\\', specific_files)
+    send_embed_to_webhook(
+        "PC Scan Results",
+        f"Total files found: {total_files}\nScanned files: {scanned_files}\n\nResults:\n{json.dumps(results, indent=2)}",
+        0x00FF00,  # Green color
+        WEBHOOK_URLS['process_traces']
+    )
+    return results
+
+def get_system_information():
+    """Retrieve detailed system information."""
+    uname = platform.uname()
+    boot_time = datetime.fromtimestamp(psutil.boot_time())
+    current_time = datetime.now()
+    system_info = {
+        'System': uname.system,
+        'Node Name': uname.node,
+        'Release': uname.release,
+        'Version': uname.version,
+        'Machine': uname.machine,
+        'Processor': uname.processor,
+        'Boot Time': boot_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'Current Time': current_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'User': getpass.getuser()
+    }
+    info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
+    send_embed_to_webhook(
+        "System Information",
+        info_str,
+        0x0000FF,  # Blue color
+        WEBHOOK_URLS['recent_activity']
+    )
+    return system_info
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python script.py <option> <delay>")
-        sys.exit(1)
-    
-    option = sys.argv[1]
-    delay = int(sys.argv[2])
-    
-    if option == '1':
-        send_webhook(WEBHOOK_URLS['admin_processes'], scan_processes())
-        send_webhook(WEBHOOK_URLS['traces'], scan_admin_processes())
-    elif option == '2':
-        send_webhook(WEBHOOK_URLS['database'], scan_database())
-    elif option == '3':
-        print("Available options: steam, spotify, razer_cortex, razer_synapse, lghub, chrome, tiktok_live_studio, voicemeeterpro, brave, All")
-        file_choice = input("Enter the file to scan or 'All': ")
-        message = scan_files(file_choice)
-        send_webhook(WEBHOOK_URLS['traces'], message)
-    elif option == '4':
-        message = get_system_info()
-        send_webhook(WEBHOOK_URLS['system_info'], message)
-    elif option == '5':
-        print("Options: deleted, recent, renamed")
-        activity_choice = input("Enter the activity type: ")
-        message = get_recent_activity(activity_choice)
-        send_webhook(WEBHOOK_URLS['recent_activity'], message)
+    print_status("Starting script...", 'normal')
+    choice = input("Enter your choice (1-6): ")
+    while choice not in ['1', '2', '3', '4', '5', '6']:
+        print_status("Invalid choice. Please select a valid option.", 'error')
+        choice = input("Enter your choice (1-6): ")
+
+    global WEBHOOK_DELAY
+    WEBHOOK_DELAY = int(input("Enter webhook delay in seconds: "))
+
+    if choice == '1':
+        processes = get_processes()
+        admin_processes = get_admin_processes()
+        send_embed_to_webhook(
+            "System Processes",
+            format_processes(processes),
+            0xFFFF00,  # Yellow color
+            WEBHOOK_URLS['system_processes']
+        )
+        send_embed_to_webhook(
+            "Admin Processes",
+            format_processes(admin_processes),
+            0xFFFF00,  # Yellow color
+            WEBHOOK_URLS['admin_processes']
+        )
+    elif choice == '2':
+        # Implement database search functionality here
+        # Ensure all relevant information is gathered and reported
+        send_embed_to_webhook(
+            "Database Search Results",
+            "Database search results go here.",
+            0x00FFFF,  # Cyan color
+            WEBHOOK_URLS['database']
+        )
+    elif choice == '3':
+        specific_files = [
+            'steam.exe',
+            'Spotify.exe',
+            'RazerCortex.exe',
+            'RazerSynapse.exe',
+            'lghub.exe',
+            'chrome.exe',
+            'TikTokLIVEStudio.exe',
+            'voicemeeterpro.exe',
+            'brave.exe'
+        ]
+        scan_results = scan_pc(specific_files)
+        send_embed_to_webhook(
+            "PC Scan Results",
+            f"Scan completed for specific files:\n{json.dumps(scan_results, indent=2)}",
+            0xFF00FF,  # Magenta color
+            WEBHOOK_URLS['process_traces']
+        )
+    elif choice == '4':
+        system_info = get_system_information()
+        send_embed_to_webhook(
+            "System Information",
+            json.dumps(system_info, indent=2),
+            0x0000FF,  # Blue color
+            WEBHOOK_URLS['recent_activity']
+        )
+    elif choice == '5':
+        # Implement error handling functionality here
+        send_embed_to_webhook(
+            "Error Handling Results",
+            "Error handling results go here.",
+            0xFF0000,  # Red color
+            WEBHOOK_URLS['error']
+        )
+    elif choice == '6':
+        # Implement recent activity scanning functionality here
+        recent_activity = scan_recent_activity()
+        send_embed_to_webhook(
+            "Recent Activity",
+            f"Recent activity results:\n{json.dumps(recent_activity, indent=2)}",
+            0xFF8800,  # Orange color
+            WEBHOOK_URLS['recent_activity']
+        )
     else:
-        print("Invalid option.")
-        sys.exit(1)
+        print_status("Invalid choice.", 'error')
 
 if __name__ == "__main__":
     main()
