@@ -1,54 +1,60 @@
-import os
-import json
-import requests
 import logging
+import os
+import sys
+import time
 
-# Define paths and webhooks
-log_file_path = 'C:\\Users\\%USERNAME%\\AppData\\Roaming\\MyPythonScript\\scan_log.txt'
-webhook_url = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
+# Set up logging
+def setup_logging():
+    log_file_path = os.path.join(os.getenv('APPDATA'), 'MyPythonScript', 'scan_log.txt')
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    logging.basicConfig(
+        filename=log_file_path,
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    logging.info("Logging setup complete.")
 
-# Setup logging
-logging.basicConfig(filename=log_file_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Example scan function
+def scan_directories(base_dir, trace_keywords):
+    logging.info(f"Scanning directory: {base_dir}")
+    found_any_trace = False
+    for root, dirs, files in os.walk(base_dir):
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+            for keyword in trace_keywords:
+                if keyword.lower() in file_name.lower():
+                    logging.info(f"Found trace: {file_path}")
+                    found_any_trace = True
+    if not found_any_trace:
+        logging.info(f"No traces found in directory: {base_dir}")
 
-def log_message(message, level='INFO'):
-    if level == 'ERROR':
-        logging.error(message)
-    elif level == 'WARNING':
-        logging.warning(message)
-    elif level == 'INFO':
-        logging.info(message)
-    else:
-        logging.info(message)
-    print(message)  # Print to console for real-time feedback
-
-def send_webhook(content):
-    try:
-        response = requests.post(webhook_url, json={"content": content})
-        response.raise_for_status()
-    except requests.RequestException as e:
-        log_message(f"Failed to send webhook: {str(e)}", 'ERROR')
-
-def scan_folders(path):
-    log_message(f"Scanning directory: {path}", 'INFO')
-    found_traces = False
-    try:
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                if any(proc in file.lower() for proc in ['lghub', 'spotify', 'razercortex', 'razersynapse', 'chrome', 'tiktok', 'voicemeeterpro', 'brave']):
-                    found_traces = True
-                    trace_path = os.path.join(root, file)
-                    log_message(f"Found trace: {trace_path}", 'WARNING')
-    except Exception as e:
-        log_message(f"Error scanning {path}: {str(e)}", 'ERROR')
-
-    if not found_traces:
-        log_message("No traces found in this directory.", 'INFO')
-
+# Main function
 def main():
-    log_message("Starting scan...")
-    scan_folders('C:\\')  # Start scan from root
-    log_message("Scan complete.")
-    send_webhook("Scan complete. Please check the results.")
+    setup_logging()
 
-if __name__ == '__main__':
+    # Define the directories to scan and the keywords to look for
+    directories_to_scan = [
+        'C:\\',  # Root of the C drive
+        os.path.join(os.getenv('APPDATA'), 'Local'),
+        os.path.join(os.getenv('APPDATA'), 'LocalLow'),
+        os.path.join(os.getenv('APPDATA'), 'Roaming')
+    ]
+    trace_keywords = [
+        'steam',
+        'Spotify',
+        'RazerCortex',
+        'Razer Synapse 3',
+        'lghub',
+        'chrome',
+        'TikTok LIVE Studio',
+        'voicemeeterpro',
+        'brave'
+    ]
+
+    for directory in directories_to_scan:
+        scan_directories(directory, trace_keywords)
+
+    logging.info("Scan complete.")
+
+if __name__ == "__main__":
     main()
