@@ -11,43 +11,28 @@ from filelock import FileLock, Timeout
 
 # Webhook URLs
 WEBHOOK_URLS = {
-    'system_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
-    'admin_processes': 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac',
     'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
-    'database': 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP',
-    'recent_activity': 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK',
-    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz'
 }
 
 # Paths
 ERROR_LOG_PATH = os.path.join(tempfile.gettempdir(), 'error_log.txt')
 
-# Webhook delay (in seconds)
-WEBHOOK_DELAY = 1
-
-def send_embed_to_webhook(title, description, color, url):
-    """Send a message to the webhook with an embedded format."""
-    max_description_length = 2000
-    descriptions = [description[i:i+max_description_length] for i in range(0, len(description), max_description_length)]
-
-    for desc in descriptions:
-        embed = {
-            "embeds": [
-                {
-                    "title": title,
-                    "description": desc,
-                    "color": color
-                }
-            ]
-        }
-        try:
-            response = requests.post(url, json=embed)
-            response.raise_for_status()
-            print_status(f"Embed sent to webhook: {title}", 'success')
-        except requests.RequestException as e:
-            log_error(f"Failed to send embed to webhook: {e}")
-        
-        time.sleep(WEBHOOK_DELAY)  # Ensure delay between webhook requests
+def send_results_to_webhook(title, description, url):
+    """Send final results to the webhook."""
+    embed = {
+        "embeds": [
+            {
+                "title": title,
+                "description": description,
+                "color": 0x00FF00  # Green color
+            }
+        ]
+    }
+    try:
+        response = requests.post(url, json=embed)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print_status(f"Failed to send results to webhook: {e}", 'error')
 
 def print_status(message, status='normal'):
     """Print status messages with color coding for real-time feedback."""
@@ -55,12 +40,13 @@ def print_status(message, status='normal'):
         'error': '91',     # Red
         'warning': '93',   # Yellow
         'success': '92',   # Green
-        'normal': '0'      # Default
+        'normal': '0',     # Default
+        'specific': '33',  # Orange
     }
     print(f"\033[{color_code[status]}m{message}\033[0m")
 
 def log_error(message):
-    """Log errors to a text file and also send to the error webhook."""
+    """Log errors to a text file."""
     print_status(message, 'error')
     
     # Create 'output' directory if it doesn't exist
@@ -76,14 +62,6 @@ def log_error(message):
                 f.write(f"{datetime.now()}: {message}\n")
     except IOError as e:
         print_status(f"Failed to write to error log: {e}", 'error')
-    
-    # Send to webhook
-    send_embed_to_webhook(
-        "Error Log",
-        message,
-        0xFF0000,  # Red color
-        WEBHOOK_URLS['error']
-    )
 
 def run_command(command):
     """Execute a command and return its output or an error message."""
@@ -92,20 +70,6 @@ def run_command(command):
         return result, None
     except subprocess.CalledProcessError as e:
         return None, str(e)
-
-def safe_open_file(file_path, mode='r', retries=5, delay=1):
-    """Attempt to open a file with retries in case of file lock errors."""
-    for attempt in range(retries):
-        try:
-            with open(file_path, mode) as f:
-                return f
-        except IOError as e:
-            if 'locked' in str(e).lower():
-                print_status(f"File is locked: {file_path}. Retrying in {delay} seconds...", 'warning')
-                time.sleep(delay)
-            else:
-                raise
-    raise IOError(f"Failed to open file after {retries} attempts: {file_path}")
 
 def scan_directory(directory, file_names=None):
     """Recursively scan a directory for specific files."""
@@ -130,9 +94,15 @@ def scan_directory(directory, file_names=None):
                             if file.lower() in entry.name.lower():
                                 path = entry.path
                                 results[file].append(path)
-                                print_status(f"Found file: {path}", 'warning')
+                                print_status(f"Found trace of '{file}' in {path}", 'specific')
                     scanned_files += 1
                     total_files += 1
+
+            # Print directory scan results
+            if not results:
+                print_status(f"Scanning through folder {current_dir} - clear", 'success')
+            else:
+                print_status(f"Scanning through folder {current_dir} - found traces", 'error')
         except PermissionError:
             log_error(f"Permission denied: {current_dir}")
             continue
@@ -140,38 +110,6 @@ def scan_directory(directory, file_names=None):
             log_error(f"IOError while scanning directory {current_dir}: {e}")
 
     return results, total_files, scanned_files
-
-def get_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        log_error(f"Failed to get processes: {error}")
-    else:
-        print_status("Retrieved processes.", 'success')
-    return output or f"Error: {error}"
-
-def get_admin_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        log_error(f"Failed to get admin processes: {error}")
-    else:
-        print_status("Retrieved admin processes.", 'success')
-    return output or f"Error: {error}"
-
-def format_processes(processes):
-    try:
-        processes_json = json.loads(processes)
-        formatted = []
-        for process in processes_json:
-            name = process.get("Name", "Unknown")
-            pid = process.get("Id", "Unknown")
-            path = process.get("Path", "Unknown")
-            formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
-        return "\n".join(formatted) if formatted else "No processes detected"
-    except json.JSONDecodeError as e:
-        log_error(f"Format Processes Error: {e}")
-        return f"Error decoding process data: {str(e)}"
 
 def find_process_traces(name):
     """Find all traces of the specific process."""
@@ -200,6 +138,7 @@ def find_process_traces(name):
                     if name.lower() in file.lower():
                         path = os.path.join(root, file)
                         traces.append(path)
+                        print_status(f"Found specific process: {name} in {path}", 'specific')
     return traces
 
 def handle_recent_activities():
@@ -216,44 +155,45 @@ def handle_recent_activities():
                         recent_activities.append(path)
         return recent_activities
     except Exception as e:
-        log_error(f"Failed to retrieve recent activities: {e}")
-        return []
-
-def handle_error(message):
-    """Handle errors in the script."""
-    log_error(message)
+        log_error(f"Error retrieving recent activities: {e}")
 
 def main():
-    """Main function to handle user choices and execute actions."""
+    """Main function to handle user input and processing."""
+    print_status("Starting process...", 'normal')
+
     while True:
-        print_status("\nChoose an option:\n1. Active Processes\n2. Admin Processes\n3. Process Traces\n4. Recent Activities\n5. Exit", 'normal')
-        choice = input("Enter choice: ").strip()
+        print_status("Choose an option:\n1. Active Processes\n2. Recent Activities\n3. Specific Process\n4. Scan Directory\n5. Exit", 'normal')
+        choice = input("Enter your choice: ")
 
         if choice == '1':
-            processes = get_processes()
-            formatted_processes = format_processes(processes)
-            send_embed_to_webhook("Active Processes", formatted_processes, 0x00FF00, WEBHOOK_URLS['system_processes'])
+            # Handle active processes
+            pass
         elif choice == '2':
-            admin_processes = get_admin_processes()
-            formatted_admin_processes = format_processes(admin_processes)
-            send_embed_to_webhook("Admin Processes", formatted_admin_processes, 0xFFFF00, WEBHOOK_URLS['admin_processes'])
-        elif choice == '3':
-            name = input("Enter process name to search for: ").strip()
-            traces = find_process_traces(name)
-            if traces:
-                formatted_traces = "\n".join(traces)
-                send_embed_to_webhook("Process Traces", formatted_traces, 0x0000FF, WEBHOOK_URLS['process_traces'])
-            else:
-                send_embed_to_webhook("Process Traces", "No traces found.", 0x0000FF, WEBHOOK_URLS['process_traces'])
-        elif choice == '4':
             recent_activities = handle_recent_activities()
             if recent_activities:
-                formatted_activities = "\n".join(recent_activities)
-                send_embed_to_webhook("Recent Activities", formatted_activities, 0x00FFFF, WEBHOOK_URLS['recent_activity'])
+                print_status(f"Recent activities found: {recent_activities}", 'success')
             else:
-                send_embed_to_webhook("Recent Activities", "No recent activities found.", 0x00FFFF, WEBHOOK_URLS['recent_activity'])
+                print_status("No recent activities found", 'success')
+        elif choice == '3':
+            process_name = input("Enter process name to search for: ")
+            traces = find_process_traces(process_name)
+            if traces:
+                send_results_to_webhook("Process Traces", f"Found traces of {process_name}: {traces}", WEBHOOK_URLS['process_traces'])
+                print_status(f"Process traces found: {traces}", 'specific')
+            else:
+                print_status(f"No traces found for {process_name}", 'success')
+        elif choice == '4':
+            directory = input("Enter the directory to scan: ")
+            file_names = input("Enter the filenames to search for (comma-separated): ").split(',')
+            results, total_files, scanned_files = scan_directory(directory, [name.strip() for name in file_names])
+            description = '\n'.join([f"File '{file}' found in: {paths}" for file, paths in results.items() if paths])
+            if description:
+                send_results_to_webhook("Scan Results", description, WEBHOOK_URLS['process_traces'])
+                print_status("Scan results sent to webhook", 'success')
+            else:
+                print_status("No files found during scan", 'success')
         elif choice == '5':
-            print_status("Exiting the program.", 'success')
+            print_status("Exiting...", 'normal')
             break
         else:
             print_status("Invalid choice. Please try again.", 'error')
