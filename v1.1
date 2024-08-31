@@ -6,9 +6,8 @@ import time
 import platform
 import getpass
 import win32clipboard
-import shutil
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Webhook URLs
 WEBHOOK_URLS = {
@@ -70,12 +69,12 @@ def run_command(command):
     except subprocess.CalledProcessError as e:
         return None, str(e)
 
-def scan_directory(directory, specific_files=None):
+def scan_directory(directory, file_names=None):
     """Recursively scan a directory for specific files."""
-    results = {file: [] for file in specific_files} if specific_files else []
-    directories_to_scan = [directory]
+    results = {file: [] for file in file_names} if file_names else []
     total_files = 0
     scanned_files = 0
+    directories_to_scan = [directory]
 
     while directories_to_scan:
         current_dir = directories_to_scan.pop()
@@ -88,8 +87,8 @@ def scan_directory(directory, specific_files=None):
                 for entry in it:
                     if entry.is_dir(follow_symlinks=False):
                         directories_to_scan.append(entry.path)
-                    elif specific_files:
-                        for file in specific_files:
+                    elif file_names:
+                        for file in file_names:
                             if file.lower() in entry.name.lower():
                                 path = entry.path
                                 results[file].append(path)
@@ -197,15 +196,26 @@ def scan_recent_activity():
     recent_activity = []
     recent_files = find_recently_closed_files()
     recent_activity.extend(recent_files)
-
     # Add more activity detection here if needed
-
     return recent_activity
 
 def scan_pc(specific_files=None):
     """Scan the entire PC, checking directories for specific files."""
     log_file = tempfile.mktemp(suffix=".log", dir=tempfile.gettempdir())
-    results, total_files, scanned_files = scan_directory('C:\\', specific_files)
+    results = {}
+    total_files = 0
+    scanned_files = 0
+
+    if specific_files:
+        for file_name in specific_files:
+            file_results, tf, sf = scan_directory('C:\\', [file_name])
+            results[file_name] = file_results[file_name]
+            total_files += tf
+            scanned_files += sf
+    else:
+        # Scan entire PC without specific files
+        results, total_files, scanned_files = scan_directory('C:\\')
+
     send_embed_to_webhook(
         "PC Scan Results",
         f"Total files found: {total_files}\nScanned files: {scanned_files}\n\nResults:\n{json.dumps(results, indent=2)}",
@@ -228,7 +238,10 @@ def get_system_information():
         'Processor': uname.processor,
         'Boot Time': boot_time.strftime('%Y-%m-%d %H:%M:%S'),
         'Current Time': current_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'User': getpass.getuser()
+        'User': getpass.getuser(),
+        'CPU Usage': f"{psutil.cpu_percent()}%",
+        'Memory Info': f"Total: {psutil.virtual_memory().total / (1024 ** 3):.2f} GB, Available: {psutil.virtual_memory().available / (1024 ** 3):.2f} GB",
+        'Disk Usage': f"Total: {psutil.disk_usage('/').total / (1024 ** 3):.2f} GB, Used: {psutil.disk_usage('/').used / (1024 ** 3):.2f} GB"
     }
     info_str = "\n".join([f"{key}: {value}" for key, value in system_info.items()])
     send_embed_to_webhook(
@@ -309,14 +322,23 @@ def main():
             WEBHOOK_URLS['error']
         )
     elif choice == '6':
-        # Implement recent activity scanning functionality here
-        recent_activity = scan_recent_activity()
-        send_embed_to_webhook(
-            "Recent Activity",
-            f"Recent activity results:\n{json.dumps(recent_activity, indent=2)}",
-            0xFF8800,  # Orange color
-            WEBHOOK_URLS['recent_activity']
-        )
+        activity_type = input("What recent activity do you want to see? (deleted, recent, renamed): ")
+        if activity_type == 'deleted':
+            # Implement logic to show deleted files
+            pass
+        elif activity_type == 'recent':
+            recent_activity = scan_recent_activity()
+            send_embed_to_webhook(
+                "Recent Activity",
+                f"Recent activity results:\n{json.dumps(recent_activity, indent=2)}",
+                0xFF8800,  # Orange color
+                WEBHOOK_URLS['recent_activity']
+            )
+        elif activity_type == 'renamed':
+            # Implement logic to show renamed files
+            pass
+        else:
+            print_status("Invalid choice for recent activity.", 'error')
     else:
         print_status("Invalid choice.", 'error')
 
