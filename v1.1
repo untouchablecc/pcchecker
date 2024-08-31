@@ -1,11 +1,27 @@
 import os
 import requests
 import sys
+import psutil
+from datetime import datetime
 from pathlib import Path
 
+# Define webhooks
 WEBHOOKS = {
     'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
 }
+
+# Define processes to look for
+PROCESSES_TO_FIND = [
+    'LGHUB',
+    'TikTokLIVEStudio',
+    'voicemeeterpro',
+    'grave',
+    'RazerCortex',
+    'RazerSynapse',
+    'spotify',
+    'steam',
+    'chrome',
+]
 
 def send_webhook(webhook_url, content):
     try:
@@ -19,13 +35,24 @@ def scan_directory(directory, trace_file):
     for root, dirs, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
-            # Example trace detection logic
-            if 'example' in file.lower():  # Replace with actual detection logic
+            if any(proc.lower() in file.lower() for proc in PROCESSES_TO_FIND):
                 results.append(f"Found trace: {file_path}")
-    # Write results to the file
     with open(trace_file, 'a') as f:
         for result in results:
             f.write(result + '\n')
+    return results
+
+def check_processes():
+    results = []
+    for proc in psutil.process_iter(['pid', 'name', 'username', 'exe']):
+        try:
+            if proc.info['name'] in PROCESSES_TO_FIND:
+                result = f"Process: {proc.info['name']} | PID: {proc.info['pid']} | Path: {proc.info['exe']} | User: {proc.info['username']}"
+                if proc.info['username'] == 'SYSTEM' or proc.info['username'] == 'admin':  # Check if admin
+                    result += " | Admin"
+                results.append(result)
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            continue
     return results
 
 def main():
@@ -49,8 +76,16 @@ def main():
         "C:\\Users\\%USERNAME%\\AppData\\Roaming"  # AppData Roaming
         # Add more directories as needed
     ]
-    
+
     try:
+        # Check processes
+        process_results = check_processes()
+        if process_results:
+            print("Scanning processes...")
+            send_webhook(WEBHOOKS['process_traces'], "\n".join(process_results))
+        else:
+            print("No target processes found.")
+
         for directory in directories_to_scan:
             directory = directory.replace('%USERNAME%', os.getlogin())
             print(f"Scanning through folder {directory}")
